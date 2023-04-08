@@ -26,19 +26,21 @@ class ControlledUnetModel(UNetModel):
             t_emb = timestep_embedding(timesteps, self.model_channels, repeat_only=False)
             emb = self.time_embed(t_emb)
             h = x.type(self.dtype)
-            for module in self.input_blocks:
+            for module in self.input_blocks: # forward pass 12 times
                 h = module(h, emb, context)
                 hs.append(h)
-            h = self.middle_block(h, emb, context)
-
+            h = self.middle_block(h, emb, context) # forward pass middle block
+        # h stores the output from the controlnet after 13 forward passes torch.Size([1, 1280, 8, 8])
+        # hs is a list of all intermediate h's
+        # control is a list of tensors of length 13 already processed by zero convolutions coming from the ControlNet module
         if control is not None:
-            h += control.pop()
+            h += control.pop() # Apply control to middle block 
 
         for i, module in enumerate(self.output_blocks):
             if only_mid_control or control is None:
                 h = torch.cat([h, hs.pop()], dim=1)
             else:
-                h = torch.cat([h, hs.pop() + control.pop()], dim=1)
+                h = torch.cat([h, hs.pop() + control.pop()], dim=1) # apply control to the decoder blocks
             h = module(h, emb, context)
 
         h = h.type(x.dtype)
@@ -334,9 +336,25 @@ class ControlLDM(LatentDiffusion):
         if cond['c_concat'] is None:
             eps = diffusion_model(x=x_noisy, timesteps=t, context=cond_txt, control=None, only_mid_control=self.only_mid_control)
         else:
-            control = self.control_model(x=x_noisy, hint=torch.cat(cond['c_concat'], 1), timesteps=t, context=cond_txt)
+            control = self.control_model(x=x_noisy, hint=torch.cat(cond['c_concat'], 1), timesteps=t, context=cond_txt) #ControlNel
             control = [c * scale for c, scale in zip(control, self.control_scales)]
-            eps = diffusion_model(x=x_noisy, timesteps=t, context=cond_txt, control=control, only_mid_control=self.only_mid_control)
+            """
+            Control Shapes:
+            torch.Size([1, 320, 64, 64])
+            torch.Size([1, 320, 64, 64])
+            torch.Size([1, 320, 64, 64])
+            torch.Size([1, 320, 32, 32])
+            torch.Size([1, 640, 32, 32])
+            torch.Size([1, 640, 32, 32])
+            torch.Size([1, 640, 16, 16])
+            torch.Size([1, 1280, 16, 16])
+            torch.Size([1, 1280, 16, 16])
+            torch.Size([1, 1280, 8, 8])
+            torch.Size([1, 1280, 8, 8])
+            torch.Size([1, 1280, 8, 8])
+            torch.Size([1, 1280, 8, 8])
+            """
+            eps = diffusion_model(x=x_noisy, timesteps=t, context=cond_txt, control=control, only_mid_control=self.only_mid_control) # ControlUnet
 
         return eps
 

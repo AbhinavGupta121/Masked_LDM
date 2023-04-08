@@ -137,3 +137,13 @@ output = process(img, prompt, a_prompt, n_prompt, num_samples, image_resolution,
 # save the output (after converting it from BGR to RGB)
 cv2.imwrite('test_outputs/human_output.png', cv2.cvtColor(output[0], cv2.COLOR_BGR2RGB))
 cv2.imwrite('test_outputs/human_output_1.png', cv2.cvtColor(output[1], cv2.COLOR_BGR2RGB))
+
+
+
+
+# ControlLDM is top level model
+# It has the following components:
+# - ControlNet: 
+# - ControlledUnetModel
+# - AutoencoderKL
+# - FrozenCLIPEmbedder
