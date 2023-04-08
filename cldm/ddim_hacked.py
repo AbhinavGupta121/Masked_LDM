@@ -21,6 +21,10 @@ class DDIMSampler(object):
         setattr(self, name, attr)
 
     def make_schedule(self, ddim_num_steps, ddim_discretize="uniform", ddim_eta=0., verbose=True):
+        """
+        Make schedule for ddim sampling.
+        Register buffers for ddim sampling parameters (alphas, betas, etc.)
+        """
         self.ddim_timesteps = make_ddim_timesteps(ddim_discr_method=ddim_discretize, num_ddim_timesteps=ddim_num_steps,
                                                   num_ddpm_timesteps=self.ddpm_num_timesteps,verbose=verbose)
         alphas_cumprod = self.model.alphas_cumprod
@@ -77,9 +81,11 @@ class DDIMSampler(object):
                ucg_schedule=None,
                **kwargs
                ):
+        
+        #extracts condition and batch size from conditioning
         if conditioning is not None:
             if isinstance(conditioning, dict):
-                ctmp = conditioning[list(conditioning.keys())[0]]
+                ctmp = conditioning[list(conditioning.keys())[0]] # get first key - Control
                 while isinstance(ctmp, list): ctmp = ctmp[0]
                 cbs = ctmp.shape[0]
                 if cbs != batch_size:
@@ -94,7 +100,7 @@ class DDIMSampler(object):
                 if conditioning.shape[0] != batch_size:
                     print(f"Warning: Got {conditioning.shape[0]} conditionings but batch-size is {batch_size}")
 
-        self.make_schedule(ddim_num_steps=S, ddim_eta=eta, verbose=verbose)
+        self.make_schedule(ddim_num_steps=S, ddim_eta=eta, verbose=verbose) #loads alphas and betas as self attributes
         # sampling
         C, H, W = shape
         size = (batch_size, C, H, W)

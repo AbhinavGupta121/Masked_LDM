@@ -662,6 +662,15 @@ class LatentDiffusion(DDPM):
         return self.scale_factor * z
 
     def get_learned_conditioning(self, c):
+        """
+        Returns embedding for texts
+        if self.cond_stage_forward is None:
+            if the model has an encode method, use it
+            else, use the model as is
+        else:
+            use the method specified by self.cond_stage_forward
+        self.cond_stage_forward is of type str
+        """
         if self.cond_stage_forward is None:
             if hasattr(self.cond_stage_model, 'encode') and callable(self.cond_stage_model.encode):
                 c = self.cond_stage_model.encode(c)

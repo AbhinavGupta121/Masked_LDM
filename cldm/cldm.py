@@ -329,7 +329,7 @@ class ControlLDM(LatentDiffusion):
         assert isinstance(cond, dict)
         diffusion_model = self.model.diffusion_model
 
-        cond_txt = torch.cat(cond['c_crossattn'], 1)
+        cond_txt = torch.cat(cond['c_crossattn'], 1) # output is tensor of shape (1, 77, 768)
 
         if cond['c_concat'] is None:
             eps = diffusion_model(x=x_noisy, timesteps=t, context=cond_txt, control=None, only_mid_control=self.only_mid_control)
@@ -423,6 +423,9 @@ class ControlLDM(LatentDiffusion):
         return opt
 
     def low_vram_shift(self, is_diffusing):
+        """
+        Shifts relevant models to GPU or CPU depending on whether we are diffusing or not.
+        """
         if is_diffusing:
             self.model = self.model.cuda()
             self.control_model = self.control_model.cuda()

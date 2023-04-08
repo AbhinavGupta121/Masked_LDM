@@ -3,8 +3,9 @@
 training/
 lightning_logs/
 image_log/
-
+test_outputs/
 *.pth
+*.pth.1
 *.pt
 *.ckpt
 *.safetensors
