@@ -8,8 +8,9 @@ from cldm.model import create_model, load_state_dict
 
 
 # Configs
-resume_path = './models/control_sd15_ini.ckpt'
-batch_size = 4
+# resume_path = './models/control_sd15_ini.ckpt'
+resume_path = './models/control_sd15_openpose.pth'
+batch_size = 2
 logger_freq = 300
 learning_rate = 1e-5
 sd_locked = True
@@ -22,7 +23,6 @@ model.load_state_dict(load_state_dict(resume_path, location='cpu'))
 model.learning_rate = learning_rate
 model.sd_locked = sd_locked
 model.only_mid_control = only_mid_control
-
 
 # Misc
 dataset = MyDataset()

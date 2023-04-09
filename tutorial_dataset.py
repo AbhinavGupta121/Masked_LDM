@@ -9,8 +9,12 @@ class MyDataset(Dataset):
     def __init__(self):
         self.data = []
         with open('./training/fill50k/prompt.json', 'rt') as f:
+            count  = 0
             for line in f:
                 self.data.append(json.loads(line))
+                count += 1
+                if(count == 1000):
+                    break
 
     def __len__(self):
         return len(self.data)

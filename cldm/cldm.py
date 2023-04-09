@@ -328,6 +328,9 @@ class ControlLDM(LatentDiffusion):
         return x, dict(c_crossattn=[c], c_concat=[control])
 
     def apply_model(self, x_noisy, t, cond, *args, **kwargs):
+        """
+        This function overloads the apply_model function of the LatentDiffusion class.
+        """
         assert isinstance(cond, dict)
         diffusion_model = self.model.diffusion_model
 
