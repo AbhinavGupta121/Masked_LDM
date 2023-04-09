@@ -296,7 +296,7 @@ class ControlNet(nn.Module):
             if guided_hint is not None:
                 h = module(h, emb, context)
                 h += guided_hint
-                guided_hint = None
+                guided_hint = None # apply guided hint only once
             else:
                 h = module(h, emb, context)
             outs.append(zero_conv(h, emb, context))

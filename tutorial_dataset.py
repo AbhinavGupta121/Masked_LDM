@@ -13,8 +13,8 @@ class MyDataset(Dataset):
             for line in f:
                 self.data.append(json.loads(line))
                 count += 1
-                if(count == 1000):
-                    break
+                # if(count == 1000):
+                #     break
 
     def __len__(self):
         return len(self.data)

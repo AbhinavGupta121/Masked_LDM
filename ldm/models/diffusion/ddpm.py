@@ -523,7 +523,7 @@ class DDPM(pl.LightningModule):
         return opt
 
 
-class LatentDiffusion(DDPM):
+class LatentDiffusion(DDPM): # class for latent diffusion
     """main class"""
 
     def __init__(self,
@@ -1330,6 +1330,10 @@ class DiffusionWrapper(pl.LightningModule):
         assert self.conditioning_key in [None, 'concat', 'crossattn', 'hybrid', 'adm', 'hybrid-adm', 'crossattn-adm']
 
     def forward(self, x, t, c_concat: list = None, c_crossattn: list = None, c_adm=None):
+        """
+        Called when self.model() is called
+        This is not being called anywhere in the ControlNet pipeline, only self.model.diffusion_model() is called
+        """
         if self.conditioning_key is None:
             out = self.diffusion_model(x, t)
         elif self.conditioning_key == 'concat':
