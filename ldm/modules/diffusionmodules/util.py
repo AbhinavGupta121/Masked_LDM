@@ -179,7 +179,7 @@ def zero_module(module):
     Zero out the parameters of a module and return it.
     """
     for p in module.parameters():
-        p.detach().zero_()
+        p.detach().zero_() # as we arent equating it to p, module will still require gradients
     return module
 
 

@@ -18,6 +18,10 @@ from cldm.cldm import ControlLDM, ControlNet
 from ldm.modules.diffusionmodules.openaimodel import UNetModel, TimestepEmbedSequential, ResBlock, Downsample, AttentionBlock
 from ldm.models.diffusion.ddpm import LatentDiffusion
 from ldm.modules.attention import SpatialTransformer
+#change this line to our dataset type
+from tutorial_dataset import MySmallDataset
+from torch.utils.data import DataLoader
+from cldm.model import load_state_dict
 
 class MaskControlNet(ControlNet):
     def __init__(
@@ -81,8 +85,9 @@ class MaskControlLDM(ControlLDM):
 
     @torch.no_grad()
     def get_input(self, batch, k, bs=None, *args, **kwargs):
-        x, c = super().get_input(batch, self.first_stage_key, *args, **kwargs)
-        # c is the conditioning from text
+        x, c = LatentDiffusion.get_input(self, batch=batch, k=self.first_stage_key, *args, **kwargs)
+        # c is the conditioning from text, x is latent
+        self.ddim_shape = (self.channels, x.shape[2], x.shape[3])
         return x, dict(c_crossattn=[c])
 
     def apply_model(self, x_noisy, t, cond, *args, **kwargs):
@@ -95,31 +100,31 @@ class MaskControlLDM(ControlLDM):
         cond_txt = torch.cat(cond['c_crossattn'], 1) # output is tensor of shape (1, 77, 768)
         control = self.control_model(x=x_noisy, timesteps=t, context=cond_txt) #removed the hint argument
         control = [c * scale for c, scale in zip(control, self.control_scales)] # list of len 13, each element is control to be applied at different unet layers
+        # for i in range(len(control)):
+            # control[i] = torch.zeros_like(control[i])
         eps = diffusion_model(x=x_noisy, timesteps=t, context=cond_txt, control=control, only_mid_control=self.only_mid_control) # ControlUnet
         return eps
 
-    @torch.no_grad()
-    def get_unconditional_conditioning(self, N):
-        return self.get_learned_conditioning([""] * N)
-
-    @torch.no_grad()
+    @torch.no_grad() 
     def log_images(self, batch, N=4, n_row=2, sample=False, ddim_steps=50, ddim_eta=0.0, return_keys=None,
                    quantize_denoised=True, inpaint=True, plot_denoise_rows=False, plot_progressive_rows=True,
                    plot_diffusion_rows=False, unconditional_guidance_scale=9.0, unconditional_guidance_label=None,
                    use_ema_scope=True,
                    **kwargs):
+        """
+        Called by the logger class, which in turn is called by pytorch lightning trainer.
+        """
         use_ddim = ddim_steps is not None
 
         log = dict()
         z, c = self.get_input(batch, self.first_stage_key, bs=N)
-        c_cat, c = c["c_concat"][0][:N], c["c_crossattn"][0][:N]
+        c = c["c_crossattn"][0][:N]
         N = min(z.shape[0], N)
         n_row = min(z.shape[0], n_row)
-        log["reconstruction"] = self.decode_first_stage(z)
-        log["control"] = c_cat * 2.0 - 1.0
+        log["reconstruction"] = self.decode_first_stage(z) # test for autoencoder
         log["conditioning"] = log_txt_as_img((512, 512), batch[self.cond_stage_key], size=16)
 
-        if plot_diffusion_rows:
+        if plot_diffusion_rows: # plot diffusion rows
             # get diffusion row
             diffusion_row = list()
             z_start = z[:n_row]
@@ -137,9 +142,9 @@ class MaskControlLDM(ControlLDM):
             diffusion_grid = make_grid(diffusion_grid, nrow=diffusion_row.shape[0])
             log["diffusion_row"] = diffusion_grid
 
-        if sample:
+        if sample: 
             # get denoise row
-            samples, z_denoise_row = self.sample_log(cond={"c_concat": [c_cat], "c_crossattn": [c]},
+            samples, z_denoise_row = self.sample_log(cond={"c_crossattn": [c]},
                                                      batch_size=N, ddim=use_ddim,
                                                      ddim_steps=ddim_steps, eta=ddim_eta)
             x_samples = self.decode_first_stage(samples)
@@ -150,9 +155,8 @@ class MaskControlLDM(ControlLDM):
 
         if unconditional_guidance_scale > 1.0:
             uc_cross = self.get_unconditional_conditioning(N)
-            uc_cat = c_cat  # torch.zeros_like(c_cat)
-            uc_full = {"c_concat": [uc_cat], "c_crossattn": [uc_cross]}
-            samples_cfg, _ = self.sample_log(cond={"c_concat": [c_cat], "c_crossattn": [c]},
+            uc_full = {"c_crossattn": [uc_cross]}
+            samples_cfg, _ = self.sample_log(cond={"c_crossattn": [c]},
                                              batch_size=N, ddim=use_ddim,
                                              ddim_steps=ddim_steps, eta=ddim_eta,
                                              unconditional_guidance_scale=unconditional_guidance_scale,
@@ -166,31 +170,85 @@ class MaskControlLDM(ControlLDM):
     @torch.no_grad()
     def sample_log(self, cond, batch_size, ddim, ddim_steps, **kwargs):
         ddim_sampler = DDIMSampler(self)
-        b, c, h, w = cond["c_concat"][0].shape
-        shape = (self.channels, h // 8, w // 8)
+        shape = self.ddim_shape
         samples, intermediates = ddim_sampler.sample(ddim_steps, batch_size, shape, cond, verbose=False, **kwargs)
         return samples, intermediates
 
-    def configure_optimizers(self):
-        lr = self.learning_rate
-        params = list(self.control_model.parameters())
-        if not self.sd_locked:
-            params += list(self.model.diffusion_model.output_blocks.parameters())
-            params += list(self.model.diffusion_model.out.parameters())
-        opt = torch.optim.AdamW(params, lr=lr)
-        return opt
+    @torch.no_grad() 
+    def log_images_fid(self, batch, N=4, n_row=2, sample=False, ddim_steps=50, ddim_eta=0.0, return_keys=None,
+                   quantize_denoised=True, inpaint=True, plot_denoise_rows=False, plot_progressive_rows=True,
+                   plot_diffusion_rows=False, unconditional_guidance_scale=9.0, unconditional_guidance_label=None,
+                   use_ema_scope=True,
+                   **kwargs):
+        """
+        Called by the logger class, which in turn is called by pytorch lightning trainer.
+        """
+        use_ddim = ddim_steps is not None
 
-    def low_vram_shift(self, is_diffusing):
+        log = dict()
+        z, c = self.get_input(batch, self.first_stage_key, bs=N)
+        c = c["c_crossattn"][0][:N]
+        N = min(z.shape[0], N)
+
+        # get samples using unconditional guidance
+        uc_cross = self.get_unconditional_conditioning(N)
+        uc_full = {"c_crossattn": [uc_cross]}
+        samples_cfg, _ = self.sample_log(cond={"c_crossattn": [c]},
+                                            batch_size=N, ddim=use_ddim,
+                                            ddim_steps=ddim_steps, eta=ddim_eta,
+                                            unconditional_guidance_scale=unconditional_guidance_scale,
+                                            unconditional_conditioning=uc_full,
+                                            )
+        x_samples_cfg = self.decode_first_stage(samples_cfg)
+        log[f"samples_cfg"] = x_samples_cfg
+        return log
+
+    @torch.no_grad()
+    def load_val_dataloader(self):
+        batch_size = 4
+        #load val data only and
+        dataset = MySmallDataset()
+        val_dataloader = DataLoader(dataset, num_workers=4, batch_size=batch_size, shuffle=True)
+        return val_dataloader
+
+    def load_model_default(self, resume_path, location='cpu'):
         """
-        Shifts relevant models to GPU or CPU depending on whether we are diffusing or not.
+        Loads the model with default stable diffusion parameters loaded in self.control_model
         """
-        if is_diffusing:
-            self.model = self.model.cuda()
-            self.control_model = self.control_model.cuda()
-            self.first_stage_model = self.first_stage_model.cpu()
-            self.cond_stage_model = self.cond_stage_model.cpu()
-        else:
-            self.model = self.model.cpu()
-            self.control_model = self.control_model.cpu()
-            self.first_stage_model = self.first_stage_model.cuda()
-            self.cond_stage_model = self.cond_stage_model.cuda()
+        dict = load_state_dict(resume_path, location=location)
+        # load all keys that start with model.diffusion_model
+        dict_diffusion = {}; dict_cond_stage = {}; dict_first_stage = {}; dict_control_model = {}
+
+        # print all keys
+        count1 = 0; count2 = 0; count3 = 0; count4 = 0
+        for key, value in dict.items():
+            # if key begins with model. 
+            if(key.startswith('model.diffusion_model')):
+                #load the value in model.diffusion_model
+                key = key.replace("model.diffusion_model.", "")
+                dict_diffusion[key] = value
+                count1 = count1 + 1
+
+                if(key.startswith("time_embed") or key.startswith("input_blocks") or key.startswith("middle_block")): # load into control_model
+                    dict_control_model[key] = value
+                    count2 = count2 + 1
+                    # NOTE this does not load the inpu_hint_block and zero_conv blocks
+
+            elif(key.startswith('cond_stage_model')):
+                key = key.replace("cond_stage_model.", "")
+                dict_cond_stage[key] = value
+                count3 = count3 + 1
+
+            elif(key.startswith('first_stage_model')):
+                key = key.replace("first_stage_model.", "")
+                dict_first_stage[key] = value
+                count4 = count4 + 1
+    
+        self.model.diffusion_model.load_state_dict(dict_diffusion, strict=True)
+        self.control_model.load_state_dict(dict_control_model, strict=False)
+        self.cond_stage_model.load_state_dict(dict_cond_stage, strict=True)
+        self.first_stage_model.load_state_dict(dict_first_stage, strict=True)
+        
+
+
+    
