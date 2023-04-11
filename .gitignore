@@ -2,7 +2,7 @@
 
 training/
 lightning_logs/
-image_log/
+image_log**
 test_outputs/
 *.pth
 *.pth.1

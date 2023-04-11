@@ -18,8 +18,7 @@ from cldm.cldm import ControlLDM, ControlNet
 from ldm.modules.diffusionmodules.openaimodel import UNetModel, TimestepEmbedSequential, ResBlock, Downsample, AttentionBlock
 from ldm.models.diffusion.ddpm import LatentDiffusion
 from ldm.modules.attention import SpatialTransformer
-#change this line to our dataset type
-from tutorial_dataset import MySmallDataset
+from dataset import Custom_Val_Dataset
 from torch.utils.data import DataLoader
 from cldm.model import load_state_dict
 
@@ -82,6 +81,10 @@ class MaskControlLDM(ControlLDM):
         # removed the control_key argument (as no control key is needed for this model)
         super().__init__(control_stage_config, control_key, only_mid_control, *args, **kwargs)
         del self.control_key
+    
+    def store_dataloaders(self, train_dataloader, val_dataloader):
+        self.train_dataloader_log = train_dataloader
+        self.val_dataloader_log = val_dataloader
 
     @torch.no_grad()
     def get_input(self, batch, k, bs=None, *args, **kwargs):
@@ -117,54 +120,36 @@ class MaskControlLDM(ControlLDM):
         use_ddim = ddim_steps is not None
 
         log = dict()
-        z, c = self.get_input(batch, self.first_stage_key, bs=N)
-        c = c["c_crossattn"][0][:N]
-        N = min(z.shape[0], N)
-        n_row = min(z.shape[0], n_row)
-        log["reconstruction"] = self.decode_first_stage(z) # test for autoencoder
-        log["conditioning"] = log_txt_as_img((512, 512), batch[self.cond_stage_key], size=16)
-
-        if plot_diffusion_rows: # plot diffusion rows
-            # get diffusion row
-            diffusion_row = list()
-            z_start = z[:n_row]
-            for t in range(self.num_timesteps):
-                if t % self.log_every_t == 0 or t == self.num_timesteps - 1:
-                    t = repeat(torch.tensor([t]), '1 -> b', b=n_row)
-                    t = t.to(self.device).long()
-                    noise = torch.randn_like(z_start)
-                    z_noisy = self.q_sample(x_start=z_start, t=t, noise=noise)
-                    diffusion_row.append(self.decode_first_stage(z_noisy))
-
-            diffusion_row = torch.stack(diffusion_row)  # n_log_step, n_row, C, H, W
-            diffusion_grid = rearrange(diffusion_row, 'n b c h w -> b n c h w')
-            diffusion_grid = rearrange(diffusion_grid, 'b n c h w -> (b n) c h w')
-            diffusion_grid = make_grid(diffusion_grid, nrow=diffusion_row.shape[0])
-            log["diffusion_row"] = diffusion_grid
-
-        if sample: 
-            # get denoise row
-            samples, z_denoise_row = self.sample_log(cond={"c_crossattn": [c]},
-                                                     batch_size=N, ddim=use_ddim,
-                                                     ddim_steps=ddim_steps, eta=ddim_eta)
-            x_samples = self.decode_first_stage(samples)
-            log["samples"] = x_samples
-            if plot_denoise_rows:
-                denoise_grid = self._get_denoise_row_from_list(z_denoise_row)
-                log["denoise_row"] = denoise_grid
-
-        if unconditional_guidance_scale > 1.0:
-            uc_cross = self.get_unconditional_conditioning(N)
+        # log["reconstruction"] = self.decode_first_stage(z) # test for autoencoder
+        # log["conditioning"] = log_txt_as_img((512, 512), batch[self.cond_stage_key], size=16)
+        
+        def get_samples(new_batch, N):
+            z, c = self.get_input(new_batch, self.first_stage_key, bs=N)
+            c = c["c_crossattn"][0][:N]
+            N = min(z.shape[0], N)
+            uc_cross = self.get_unconditional_conditioning(N) # null text conditioning
             uc_full = {"c_crossattn": [uc_cross]}
             samples_cfg, _ = self.sample_log(cond={"c_crossattn": [c]},
-                                             batch_size=N, ddim=use_ddim,
-                                             ddim_steps=ddim_steps, eta=ddim_eta,
-                                             unconditional_guidance_scale=unconditional_guidance_scale,
-                                             unconditional_conditioning=uc_full,
-                                             )
+                                                batch_size=N, ddim=use_ddim,
+                                                ddim_steps=ddim_steps, eta=ddim_eta,
+                                                unconditional_guidance_scale=unconditional_guidance_scale,
+                                                unconditional_conditioning=uc_full,
+                                                )
             x_samples_cfg = self.decode_first_stage(samples_cfg)
-            log[f"samples_cfg_scale_{unconditional_guidance_scale:.2f}"] = x_samples_cfg
+            # print(new_batch['jpg'].permute(0, 3, 1, 2))
+            return x_samples_cfg, new_batch['jpg'].permute(0, 3, 1, 2)
+        
+        print("---------------Logging Train Samples---------------")
+        train_batch_samples = next(iter(self.train_dataloader_log))
+        train_samples, train_gt= get_samples(train_batch_samples, N)
+        log["train_batch_samples"] = torch.cat((train_samples.to('cpu'),train_gt.to('cpu')), dim=0)
+        log["train_batch_text"] = log_txt_as_img((512, 512), train_batch_samples[self.cond_stage_key],size=16).to('cpu')
 
+        print("---------------Logging Validation Samples---------------")
+        val_batch_samples = next(iter(self.val_dataloader_log))
+        val_samples, val_gt = get_samples(val_batch_samples, N)
+        log["val_batch_samples"] = torch.cat((val_samples.to('cpu'), val_gt.to('cpu')), dim=0)
+        log["val_batch_text"] = log_txt_as_img((512, 512), val_batch_samples[self.cond_stage_key],size=16).to('cpu')
         return log
 
     @torch.no_grad()
@@ -189,7 +174,6 @@ class MaskControlLDM(ControlLDM):
         z, c = self.get_input(batch, self.first_stage_key, bs=N)
         c = c["c_crossattn"][0][:N]
         N = min(z.shape[0], N)
-
         # get samples using unconditional guidance
         uc_cross = self.get_unconditional_conditioning(N)
         uc_full = {"c_crossattn": [uc_cross]}
@@ -202,14 +186,6 @@ class MaskControlLDM(ControlLDM):
         x_samples_cfg = self.decode_first_stage(samples_cfg)
         log[f"samples_cfg"] = x_samples_cfg
         return log
-
-    @torch.no_grad()
-    def load_val_dataloader(self):
-        batch_size = 4
-        #load val data only and
-        dataset = MySmallDataset()
-        val_dataloader = DataLoader(dataset, num_workers=4, batch_size=batch_size, shuffle=True)
-        return val_dataloader
 
     def load_model_default(self, resume_path, location='cpu'):
         """

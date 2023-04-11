@@ -50,7 +50,7 @@ class MySmallDataset(Dataset):
             for line in f:
                 self.data.append(json.loads(line))
                 count += 1
-                if(count == 40):
+                if(count == 2):
                     break
 
     def __len__(self):
