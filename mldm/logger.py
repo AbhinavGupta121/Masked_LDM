@@ -53,10 +53,9 @@ class ImageLogger(Callback):
             if not os.path.exists(os.path.join(root, k+".csv")):
                 with open(os.path.join(root, k+".csv"), "w") as f:
                     f.write("Global Step, Current Epoch, Batch Index, Prompt\n")
-
             # append text to prompts.txt in a new line with 
             with open(os.path.join(root, k+".csv"), "a") as f:
-                f.write(str(global_step)+","+str(current_epoch)+","+ str(batch_idx)+","+ text[k]+"\n")
+                f.write(str(global_step)+","+str(current_epoch)+","+ str(batch_idx)+","+ str(text[k])+"\n")
 
 
     def log_img(self, pl_module, batch, batch_idx, split="train"):
@@ -136,8 +135,9 @@ class ImageLogger(Callback):
                                 Image.fromarray(grid).save(path)
                             
                             # create a samples_cfg_prompts.txt file in gen_path_batch
-                            with open(os.path.join(gen_path_batch, "samples_cfg_prompts.txt"), "w") as f:
-                                f.write("Global Step, Current Epoch, Batch Index, Prompt\n")
+                            if not os.path.exists(os.path.join(gen_path_batch, "samples_cfg_prompts.txt")):
+                                with open(os.path.join(gen_path_batch, "samples_cfg_prompts.txt"), "a") as f:
+                                    f.write("Global Step, Current Epoch, Batch Index, Prompt\n")
                             for i in range(batch_fid["jpg"].shape[0]): # for each image in the batch
                                 with open(os.path.join(gen_path_batch, "samples_cfg_prompts.txt"), "a") as f:
                                     f.write(str(pl_module.global_step)+","+str(pl_module.current_epoch)+","+ str(batch_idx_fid)+","+ text[i]+"\n")

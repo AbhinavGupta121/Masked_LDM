@@ -24,3 +24,15 @@ for k in text:
     # append text to prompts.txt in a new line with 
     with open(os.path.join(root, k+".csv"), "a") as f:
         f.write(str(global_step)+","+str(current_epoch)+","+ str(batch_idx)+","+ text[k]+"\n")
+
+for k in text:
+    # make a .txt file called prompts.txt at root if it doesn't exist
+    if not os.path.exists(os.path.join(root, k+".csv")):
+        os.makedirs(root, exist_ok=True)
+        print("not found")
+        with open(os.path.join(root, k+".csv"), "w") as f:
+            f.write("Global Step, Current Epoch, Batch Index, Prompt\n")
+
+    # append text to prompts.txt in a new line with 
+    with open(os.path.join(root, k+".csv"), "a") as f:
+        f.write(str(global_step)+","+str(current_epoch)+","+ str(batch_idx)+","+ text[k]+"\n")

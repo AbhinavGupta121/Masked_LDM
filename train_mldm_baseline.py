@@ -32,7 +32,7 @@ def main():
     learning_rate = 1e-5
     sd_locked = True
     only_mid_control = False
-    calculate_fid = False
+    calculate_fid = True
 
     # First use cpu to load models. Pytorch Lightning will automatically move it to GPUs.
     model = create_model('./models/mldm_v15.yaml').cpu()
