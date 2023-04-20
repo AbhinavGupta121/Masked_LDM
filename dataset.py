@@ -32,7 +32,6 @@ class Train_Dataset(Dataset):
         prompts = item['prompts']
         prompt =np.random.choice(prompts, 1) #, replace=False)
 
-
         # source = cv2.imread('./training/fill50k/' + source_filename)
         target = cv2.imread('../cocoapi/coco/person/images/train2017/' + target_filename)
 

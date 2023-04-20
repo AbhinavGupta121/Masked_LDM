@@ -18,21 +18,17 @@ from cldm.model import create_model, load_state_dict
 
 # TODO for logging:
 # - Store train and val prompts in a txt file instead
-# - log model weights more frequently
 
-#TODO: @abhinav - Go through train fit. At a DDPM step, get UNET output, call ddim function for calculating pred_x0. 
-# Calculate VGG loss using pred_x0 and GT image masks.
 
 def main():
     # Configs
-    resume_path = './models/control_sd15_openpose.pth' #start from openpose pretrained model
+    resume_path = '/home/phebbar/Documents/ControlNet/lightning_logs/version_110/checkpoints/epoch=5-step=167999.ckpt' #start from openpose pretrained model
     batch_size = 1
-    logger_freq = 2 # log images frequency
-    fid_logger_freq = 4 # log fid frequency
+    logger_freq = 300 # log images frequency
+    fid_logger_freq = 4000 # log fid frequency
     learning_rate = 1e-5
     sd_locked = True
     only_mid_control = False
-    calculate_fid = False
 
     # First use cpu to load models. Pytorch Lightning will automatically move it to GPUs.
     model = create_model('./models/mldm_v15.yaml').cpu()
@@ -41,7 +37,8 @@ def main():
     model.learning_rate = learning_rate
     model.sd_locked = sd_locked
     model.only_mid_control = only_mid_control
-    model.calculate_fid = calculate_fid
+
+    model.eval()
 
     # Misc
     logger = ImageLogger(batch_frequency=logger_freq, fid_frequency=fid_logger_freq, train_batch_size=batch_size)
@@ -54,8 +51,11 @@ def main():
     val_dataloader_fid = DataLoader(Custom_Val_Dataset(), num_workers=24, batch_size=batch_size, shuffle=True)
     model.store_dataloaders(train_dataloader_log, val_dataloader_log, val_dataloader_fid)
 
+    
     # Train!
-    trainer.fit(model, train_dataloader) 
+    # trainer.fit(model, val_dataloader_log) 
+    # trainer.validate(model, val_dataloader_log)
+
     # Calls the training_step function in model class (in the ddpm.py file)
     # The model is of type ControlLDM which inherits from LatentDiffusion
     # When .fit() is called, the functions of the model class are called in this format:

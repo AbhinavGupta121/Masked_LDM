@@ -29,7 +29,7 @@ class ImageLogger(Callback):
         self.train_batch_size = train_batch_size
 
     @rank_zero_only 
-    def log_local(self, save_dir, split, images, global_step, current_epoch, batch_idx, version):
+    def log_local(self, save_dir, split, images, text, global_step, current_epoch, batch_idx, version):
         """
         Decorator used to run this method only on the main process (with rank 0)
         Makes a grid of images and saves it to disk
@@ -47,6 +47,17 @@ class ImageLogger(Callback):
             path = os.path.join(root, filename)
             os.makedirs(os.path.split(path)[0], exist_ok=True)
             Image.fromarray(grid).save(path)
+        
+        # store text prompts in a csv file (text will have train_batch_text and val_batch_text)
+        for k in text:
+            if not os.path.exists(os.path.join(root, k+".csv")):
+                with open(os.path.join(root, k+".csv"), "w") as f:
+                    f.write("Global Step, Current Epoch, Batch Index, Prompt\n")
+
+            # append text to prompts.txt in a new line with 
+            with open(os.path.join(root, k+".csv"), "a") as f:
+                f.write(str(global_step)+","+str(current_epoch)+","+ str(batch_idx)+","+ text[k]+"\n")
+
 
     def log_img(self, pl_module, batch, batch_idx, split="train"):
         """
@@ -65,7 +76,7 @@ class ImageLogger(Callback):
                 pl_module.eval() # set to eval mode
 
             with torch.no_grad():
-                images = pl_module.log_images(batch, split=split, **self.log_images_kwargs)
+                images, text = pl_module.log_images(batch, split=split, **self.log_images_kwargs)
 
             for k in images:
                 N = min(images[k].shape[0], self.max_images)
@@ -75,23 +86,25 @@ class ImageLogger(Callback):
                     if self.clamp:
                         images[k] = torch.clamp(images[k], -1., 1.)
 
-            self.log_local(pl_module.logger.save_dir, split, images,
+            self.log_local(pl_module.logger.save_dir, split, images, text,
                            pl_module.global_step, pl_module.current_epoch, batch_idx, pl_module.logger.version)
 
             if is_train:
                 pl_module.train() # restore training mode
 
-    def calc_fid(self, pl_module, batch_idx, split="val"):
+    def calc_fid(self, pl_module, batch_idx, split="fid_val"):
         """
         Called by on_train_batch_end
         Logs images to image_log/train or image_log/{split}
         Calls the log_images function of the model 
         """
+        if(pl_module.calculate_fid==False):
+            return
         if (batch_idx % self.fid_frequency == 0): # log every fid_frequency batches
 
             print("---------------Calculating FID---------------") 
-            gen_path_batch = os.path.join(self.gen_path, "version" + str(pl_module.logger.version), "val", "batch"+str(batch_idx))
-            custom_dataloader  = pl_module.val_dataloader_log
+            gen_path_batch = os.path.join(self.gen_path, "version" + str(pl_module.logger.version), "fid_val", "step"+str(pl_module.global_step))
+            custom_dataloader  = pl_module.val_dataloader_fid
 
             is_train = pl_module.training
             if is_train:
@@ -100,7 +113,7 @@ class ImageLogger(Callback):
             with torch.no_grad():
                 for batch_idx_fid, batch_fid in enumerate(custom_dataloader):
                     images = pl_module.log_images_fid(batch_fid, split=split, **self.log_images_kwargs)
-
+                    text = batch_fid["txt"]
                     for k in images:
                         N = min(images[k].shape[0], self.max_images)
                         images[k] = images[k][:N]
@@ -121,6 +134,13 @@ class ImageLogger(Callback):
                                 path = os.path.join(gen_path_batch, filename)
                                 os.makedirs(os.path.split(path)[0], exist_ok=True)
                                 Image.fromarray(grid).save(path)
+                            
+                            # create a samples_cfg_prompts.txt file in gen_path_batch
+                            with open(os.path.join(gen_path_batch, "samples_cfg_prompts.txt"), "w") as f:
+                                f.write("Global Step, Current Epoch, Batch Index, Prompt\n")
+                            for i in range(batch_fid["jpg"].shape[0]): # for each image in the batch
+                                with open(os.path.join(gen_path_batch, "samples_cfg_prompts.txt"), "a") as f:
+                                    f.write(str(pl_module.global_step)+","+str(pl_module.current_epoch)+","+ str(batch_idx_fid)+","+ text[i]+"\n")
 
             score = self.compute_fid(self.gt_path, gen_path_batch)
             print('FID:', score)
@@ -155,6 +175,6 @@ class ImageLogger(Callback):
         """
         if not self.disabled:
             self.log_img(pl_module, batch, batch_idx, split="train")
-            self.calc_fid(pl_module, batch_idx, split="val")
+            self.calc_fid(pl_module, batch_idx, split="fid_val")
 
                     

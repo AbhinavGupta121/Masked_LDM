@@ -82,9 +82,10 @@ class MaskControlLDM(ControlLDM):
         super().__init__(control_stage_config, control_key, only_mid_control, *args, **kwargs)
         del self.control_key
     
-    def store_dataloaders(self, train_dataloader, val_dataloader):
+    def store_dataloaders(self, train_dataloader, val_dataloader, val_dataloader_fid):
         self.train_dataloader_log = train_dataloader
         self.val_dataloader_log = val_dataloader
+        self.val_dataloader_fid = val_dataloader_fid
 
     @torch.no_grad()
     def get_input(self, batch, k, bs=None, *args, **kwargs):
@@ -120,6 +121,7 @@ class MaskControlLDM(ControlLDM):
         use_ddim = ddim_steps is not None
 
         log = dict()
+        text = dict()
         # log["reconstruction"] = self.decode_first_stage(z) # test for autoencoder
         # log["conditioning"] = log_txt_as_img((512, 512), batch[self.cond_stage_key], size=16)
         
@@ -143,14 +145,16 @@ class MaskControlLDM(ControlLDM):
         train_batch_samples = next(iter(self.train_dataloader_log))
         train_samples, train_gt= get_samples(train_batch_samples, N)
         log["train_batch_samples"] = torch.cat((train_samples.to('cpu'),train_gt.to('cpu')), dim=0)
-        log["train_batch_text"] = log_txt_as_img((512, 512), train_batch_samples[self.cond_stage_key],size=16).to('cpu')
+        # log["train_batch_text"] = log_txt_as_img((512, 512), train_batch_samples[self.cond_stage_key],size=16).to('cpu')
+        text["train_batch_text"] = train_batch_samples[self.cond_stage_key]    
 
         print("---------------Logging Validation Samples---------------")
         val_batch_samples = next(iter(self.val_dataloader_log))
         val_samples, val_gt = get_samples(val_batch_samples, N)
         log["val_batch_samples"] = torch.cat((val_samples.to('cpu'), val_gt.to('cpu')), dim=0)
-        log["val_batch_text"] = log_txt_as_img((512, 512), val_batch_samples[self.cond_stage_key],size=16).to('cpu')
-        return log
+        # log["val_batch_text"] = log_txt_as_img((512, 512), val_batch_samples[self.cond_stage_key],size=16).to('cpu')
+        text["val_batch_text"] = val_batch_samples[self.cond_stage_key]
+        return log, text
 
     @torch.no_grad()
     def sample_log(self, cond, batch_size, ddim, ddim_steps, **kwargs):
@@ -195,7 +199,6 @@ class MaskControlLDM(ControlLDM):
         # load all keys that start with model.diffusion_model
         dict_diffusion = {}; dict_cond_stage = {}; dict_first_stage = {}; dict_control_model = {}
 
-        # print all keys
         count1 = 0; count2 = 0; count3 = 0; count4 = 0
         for key, value in dict.items():
             # if key begins with model. 
