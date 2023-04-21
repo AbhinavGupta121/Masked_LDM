@@ -8,31 +8,37 @@ from torch.utils.data import DataLoader
 from dataset import Custom_Train_Dataset, Custom_Val_Dataset, Train_Dataset, Val_Dataset
 from mldm.logger import ImageLogger
 from cldm.model import create_model, load_state_dict
-# Problems: 
-# - Val dataset is small, random sampling for logging leads to same images being logged
-# - Store train and val prompts in a txt file instead
-
 # TODO for loss:
 # - Code for 1 step prediction
 # - Mask is also there in the GT now, so multiply the loss by the mask
 
 # TODO for logging:
-# - Store train and val prompts in a txt file instead
 # - log model weights more frequently
 
 #TODO: @abhinav - Go through train fit. At a DDPM step, get UNET output, call ddim function for calculating pred_x0. 
 # Calculate VGG loss using pred_x0 and GT image masks.
 
+class CustomCheckpointCallback(pl.callbacks.ModelCheckpoint):
+    # save the model every n steps
+    def __init__(self, save_every_n_steps):
+        super().__init__(dirpath='checkpoints', filename='model', save_top_k=1, monitor=None)
+        self.save_every_n_steps = save_every_n_steps
+    
+    def on_batch_end(self, trainer, pl_module):
+        if trainer.global_step % self.save_every_n_steps == 0:
+            super().on_batch_end(trainer, pl_module)
+
 def main():
     # Configs
     resume_path = './models/control_sd15_openpose.pth' #start from openpose pretrained model
     batch_size = 1
-    logger_freq = 2 # log images frequency
-    fid_logger_freq = 4 # log fid frequency
+    logger_freq = 300 # log images frequency
+    fid_logger_freq = 10000 # log fid frequency
     learning_rate = 1e-5
     sd_locked = True
     only_mid_control = False
     calculate_fid = True
+    save_model_every_n_steps = 10000
 
     # First use cpu to load models. Pytorch Lightning will automatically move it to GPUs.
     model = create_model('./models/mldm_v15.yaml').cpu()
@@ -45,7 +51,8 @@ def main():
 
     # Misc
     logger = ImageLogger(batch_frequency=logger_freq, fid_frequency=fid_logger_freq, train_batch_size=batch_size)
-    trainer = pl.Trainer(gpus=1, precision=32, callbacks=[logger])
+    checkpointer= CustomCheckpointCallback(save_every_n_steps=save_model_every_n_steps)
+    trainer = pl.Trainer(gpus=1, precision=32, callbacks=[logger, checkpointer])
     # can pass resume_from_checkpoint=resume_path to resume training
 
     train_dataloader = DataLoader(Custom_Train_Dataset(), num_workers=24, batch_size=batch_size, shuffle=True)
