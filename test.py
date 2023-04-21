@@ -1,38 +1,70 @@
 from dataset import Custom_Train_Dataset, Custom_Val_Dataset
 from torch.utils.data import DataLoader
 import os
+import numpy as np
+import matplotlib.pyplot as plt
+import cv2
 
-save_dir = "/home/phebbar/Documents/ControlNet/testing"
-version = 1
-split = "train"
-root = os.path.join(save_dir, "image_log", "version" + str(version) , split)
-text = dict()
-text["train_batch_text"] = "testingtrain"
-text["val_batch_text"] = "testingval"
+def custom_resize(img):
+    # img shape is (height, width, channels)
+    height, width = img.shape[:2]
+    if(height < width):
+        # transpose image along 0 and 1 axis
+        img = custom_resize(img.transpose(1, 0, 2))
+        # transpose back
+        img = img.transpose(1, 0, 2)
+        return img
+    else:
+        # get the scale factor for height
+        if(height > 256): # resize img if max_dim > 256
+            # Determine the scaling factor to resize the image
+            scale_factor = 256 / height
+        else:
+            # scale such that height is a multiple of 64
+            # get closest multiple of 64
+            dist = np.abs(np.array([64, 128, 192, 256]) - height)
+            closest_multiple = (1+np.argmin(dist))*64
+            scale_factor = closest_multiple / height
+            # scale_factor = max( 64 / height, 128/height, 256/height)
+        # Resize the image
+        wi_new = int(width * scale_factor)
+        hi_new = int(height * scale_factor)
+        print("raw scale", hi_new, wi_new, end=' - ')
+        if(wi_new<64):
+            # resize width to 64
+            scale_factor_x = 64 / width
+            resized_img = cv2.resize(img, None, fx=scale_factor, fy=scale_factor, interpolation=cv2.INTER_LINEAR)
 
-global_step = 4
-current_epoch = 5
-batch_idx = 6
-for k in text:
-    # make a .txt file called prompts.txt at root if it doesn't exist
-    if not os.path.exists(os.path.join(root, k+".csv")):
-        os.makedirs(root, exist_ok=True)
-        print("not found")
-        with open(os.path.join(root, k+".csv"), "w") as f:
-            f.write("Global Step, Current Epoch, Batch Index, Prompt\n")
+        elif(wi_new%64 < 10 or wi_new%64 > 54): #the width is very near to a multiple of 64, so just resize
+            print("close", end=' - ')
+            # get nearest multiple of 64
+            dist = np.abs(np.array([64, 128, 192, 256]) - wi_new)
+            closest_multiple = (1+np.argmin(dist))*64
+            scale_factor_x = closest_multiple / width
+            resized_img = cv2.resize(img, None, fx=scale_factor_x, fy=scale_factor, interpolation=cv2.INTER_LINEAR)
 
-    # append text to prompts.txt in a new line with 
-    with open(os.path.join(root, k+".csv"), "a") as f:
-        f.write(str(global_step)+","+str(current_epoch)+","+ str(batch_idx)+","+ text[k]+"\n")
+        else:   # center crop the width to be a multiple of 64
+            print("center crop", end=' - ')
+            img = cv2.resize(img, None, fx=scale_factor, fy=scale_factor, interpolation=cv2.INTER_LINEAR)
 
-for k in text:
-    # make a .txt file called prompts.txt at root if it doesn't exist
-    if not os.path.exists(os.path.join(root, k+".csv")):
-        os.makedirs(root, exist_ok=True)
-        print("not found")
-        with open(os.path.join(root, k+".csv"), "w") as f:
-            f.write("Global Step, Current Epoch, Batch Index, Prompt\n")
+            # clip width to be a multiple of 64
+            wi_crop = wi_new - (wi_new % 64)
+            # center crop image
+            resized_img = img[:, (wi_new - wi_crop) // 2 : (wi_new - wi_crop) // 2 + wi_crop, :]
+    
+    return resized_img
 
-    # append text to prompts.txt in a new line with 
-    with open(os.path.join(root, k+".csv"), "a") as f:
-        f.write(str(global_step)+","+str(current_epoch)+","+ str(batch_idx)+","+ text[k]+"\n")
+# test the custom_resize function
+# generate a random image
+img = cv2.imread('test_imgs/bag_scribble.png')
+for i in range(50):
+    height = np.random.randint(50, 500)
+    width = np.random.randint(50, 500)
+    # resize image to 256 193
+    img = cv2.resize(img, (height, width))
+    print(img.shape, end=' - ')
+    resized_img = custom_resize(img)
+    print(resized_img.shape)
+# # save images
+# cv2.imwrite('original.png', img)
+# cv2.imwrite('resized.png', resized_img)

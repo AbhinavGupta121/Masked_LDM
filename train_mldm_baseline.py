@@ -5,7 +5,7 @@ from share import *
 import pytorch_lightning as pl
 from torch.utils.data import DataLoader
 # from tutorial_dataset import MyDataset, MySmallDataset
-from dataset import Custom_Train_Dataset, Custom_Val_Dataset, Train_Dataset, Val_Dataset
+from dataset import Custom_Train_Dataset, Custom_Val_Dataset, Custom_FID_Dataset
 from mldm.logger import ImageLogger
 from cldm.model import create_model, load_state_dict
 # TODO for loss:
@@ -58,7 +58,7 @@ def main():
     train_dataloader = DataLoader(Custom_Train_Dataset(), num_workers=24, batch_size=batch_size, shuffle=True)
     train_dataloader_log = DataLoader(Custom_Train_Dataset(), num_workers=24, batch_size=batch_size, shuffle=True)
     val_dataloader_log = DataLoader(Custom_Val_Dataset(), num_workers=24, batch_size=batch_size, shuffle=True)
-    val_dataloader_fid = DataLoader(Custom_Val_Dataset(), num_workers=24, batch_size=batch_size, shuffle=True)
+    val_dataloader_fid = DataLoader(Custom_FID_Dataset(), num_workers=24, batch_size=batch_size, shuffle=True)
     model.store_dataloaders(train_dataloader_log, val_dataloader_log, val_dataloader_fid)
 
     # Train!
