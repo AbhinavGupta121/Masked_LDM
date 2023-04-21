@@ -9,15 +9,17 @@ from torch.utils.data import Dataset
 import random
 
 
-def custom_resize(img):
+def custom_resize(img, mask):
     # img shape is (height, width, channels)
     height, width = img.shape[:2]
     if(height < width):
         # transpose image along 0 and 1 axis
-        img = custom_resize(img.transpose(1, 0, 2))
+        img, mask = custom_resize(img.transpose(1, 0, 2), mask.transpose(1, 0))
+        # print("transposed", img.shape, mask.shape)
         # transpose back
         img = img.transpose(1, 0, 2)
-        return img
+        mask = mask.transpose(1, 0)
+        return img, mask
     else:
         # get the scale factor for height
         if(height > 256): # resize img if max_dim > 256
@@ -33,30 +35,37 @@ def custom_resize(img):
         # Resize the image
         wi_new = int(width * scale_factor)
         hi_new = int(height * scale_factor)
-        print("raw scale", hi_new, wi_new, end=' - ')
+        # print("raw scale", hi_new, wi_new, end=' - ')
         if(wi_new<64):
             # resize width to 64
             scale_factor_x = 64 / width
-            resized_img = cv2.resize(img, None, fx=scale_factor, fy=scale_factor, interpolation=cv2.INTER_LINEAR)
+            resized_img = cv2.resize(img, None, fx=scale_factor_x, fy=scale_factor, interpolation=cv2.INTER_LINEAR)
+            resized_mask = cv2.resize(mask, None, fx=scale_factor_x, fy=scale_factor, interpolation=cv2.INTER_LINEAR)
+            # print("small", resized_img.shape, resized_mask.shape)
 
         elif(wi_new%64 < 10 or wi_new%64 > 54): #the width is very near to a multiple of 64, so just resize
-            print("close", end=' - ')
+            # print("close", end=' - ')
             # get nearest multiple of 64
             dist = np.abs(np.array([64, 128, 192, 256]) - wi_new)
             closest_multiple = (1+np.argmin(dist))*64
             scale_factor_x = closest_multiple / width
             resized_img = cv2.resize(img, None, fx=scale_factor_x, fy=scale_factor, interpolation=cv2.INTER_LINEAR)
+            resized_mask = cv2.resize(mask, None, fx=scale_factor_x, fy=scale_factor, interpolation=cv2.INTER_LINEAR)
+            # print("close", resized_img.shape, resized_mask.shape)
 
         else:   # center crop the width to be a multiple of 64
-            print("center crop", end=' - ')
+            # print("center crop", end=' - ')
             img = cv2.resize(img, None, fx=scale_factor, fy=scale_factor, interpolation=cv2.INTER_LINEAR)
+            mask = cv2.resize(mask, None, fx=scale_factor, fy=scale_factor, interpolation=cv2.INTER_LINEAR)
 
             # clip width to be a multiple of 64
             wi_crop = wi_new - (wi_new % 64)
             # center crop image
             resized_img = img[:, (wi_new - wi_crop) // 2 : (wi_new - wi_crop) // 2 + wi_crop, :]
+            resized_mask = mask[:, (wi_new - wi_crop) // 2 : (wi_new - wi_crop) // 2 + wi_crop]
+            # print("center crop", resized_img.shape, resized_mask.shape)
     
-    return resized_img
+    return resized_img, resized_mask
 
 class Custom_Train_Dataset(Dataset):
     def __init__(self):
@@ -83,10 +92,14 @@ class Custom_Train_Dataset(Dataset):
 
         # source = cv2.imread('./training/fill50k/' + source_filename)
         target = cv2.imread('../cocoapi/coco/person_new/images/train2017/' + target_filename)
+        mask = cv2.imread('../cocoapi/coco/person_new/mask/train2017/' + mask_filename, cv2.IMREAD_GRAYSCALE)
         # print("hi1", type(target), type(prompt))
         # Do not forget that OpenCV read images in BGR order.
         target = cv2.cvtColor(target, cv2.COLOR_BGR2RGB)
-        target = custom_resize(target)
+        
+        # print(target.shape, mask.shape, "from inside1")
+        target, mask = custom_resize(target, mask)
+        # print(target.shape, mask.shape, "from inside2\n")
         target = Image.fromarray(target)
         target = self.transform(target)
         target = np.array(target)
@@ -97,11 +110,8 @@ class Custom_Train_Dataset(Dataset):
         # target = target.ToTensor()
 
 
-        mask = cv2.imread('../cocoapi/coco/person_new/mask/train2017/' + mask_filename, cv2.IMREAD_GRAYSCALE)
         # mask = cv2.cvtColor(mask, cv2.COLOR_BGR2RGB)
         # mask = plt.imread('../cocoapi/coco/person_new/mask/train2017/' + mask_filename)
-        mask = imageio.imread('../cocoapi/coco/person_new/mask/train2017/' + mask_filename)
-        mask = custom_resize(mask)
         mask = Image.fromarray(mask)
         mask = self.transform(mask)
         mask = np.array(mask)
@@ -134,10 +144,11 @@ class Custom_Val_Dataset(Dataset):
         prompts = item['prompts']
         prompt =np.random.choice(prompts, 1) #, replace=False)
         target = cv2.imread('../cocoapi/coco/person_new/images/val2017/' + target_filename)
+        mask = cv2.imread('../cocoapi/coco/person_new/mask/val2017/' + mask_filename, cv2.IMREAD_GRAYSCALE)
         # print("hi2", type(target), type(prompt))
         # Do not forget that OpenCV read images in BGR order.
         target = cv2.cvtColor(target, cv2.COLOR_BGR2RGB)
-        target = custom_resize(target)
+        target, mask = custom_resize(target, mask)
         target = Image.fromarray(target)
         target = self.transform(target)
         target = np.array(target)
@@ -147,11 +158,9 @@ class Custom_Val_Dataset(Dataset):
         target = (target.astype(np.float32)*2) - 1.0
         # target = target.ToTensor()
 
-        mask = cv2.imread('../cocoapi/coco/person_new/mask/val2017/' + mask_filename, cv2.IMREAD_GRAYSCALE)
         # mask = cv2.cvtColor(mask, cv2.COLOR_BGR2RGB)
         # mask = plt.imread('../cocoapi/coco/person_new/mask/val2017/' + mask_filename)
         # mask = imageio.imread('../cocoapi/coco/person_new/mask/val2017/' + mask_filename)
-        mask = custom_resize(mask)
         mask = Image.fromarray(mask)
         mask = self.transform(mask)
         mask = np.array(mask)
@@ -188,10 +197,11 @@ class Custom_FID_Dataset(Dataset):
         prompts = item['prompts']
         prompt =np.random.choice(prompts, 1) #, replace=False)
         target = cv2.imread('../cocoapi/coco/person_new/images/val2017/' + target_filename)
+        mask = cv2.imread('../cocoapi/coco/person_new/mask/val2017/' + mask_filename, cv2.IMREAD_GRAYSCALE)
         # print("hi2", type(target), type(prompt))
         # Do not forget that OpenCV read images in BGR order.
         target = cv2.cvtColor(target, cv2.COLOR_BGR2RGB)
-        target = custom_resize(target)
+        target, mask = custom_resize(target, mask)
         target = Image.fromarray(target)
         target = self.transform(target)
         target = np.array(target)
@@ -201,11 +211,9 @@ class Custom_FID_Dataset(Dataset):
         target = (target.astype(np.float32)*2) - 1.0
         # target = target.ToTensor()
 
-        mask = cv2.imread('../cocoapi/coco/person_new/mask/val2017/' + mask_filename, cv2.IMREAD_GRAYSCALE)
         # mask = cv2.cvtColor(mask, cv2.COLOR_BGR2RGB)
         # mask = plt.imread('../cocoapi/coco/person_new/mask/val2017/' + mask_filename)
         # mask = imageio.imread('../cocoapi/coco/person_new/mask/val2017/' + mask_filename)
-        mask = custom_resize(mask)
         mask = Image.fromarray(mask)
         mask = self.transform(mask)
         mask = np.array(mask)

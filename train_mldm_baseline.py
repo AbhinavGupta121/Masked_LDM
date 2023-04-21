@@ -33,7 +33,7 @@ def main():
     resume_path = './models/control_sd15_openpose.pth' #start from openpose pretrained model
     batch_size = 1
     logger_freq = 300 # log images frequency
-    fid_logger_freq = 10000 # log fid frequency
+    fid_logger_freq = 5000 # log fid frequency
     learning_rate = 1e-5
     sd_locked = True
     only_mid_control = False
