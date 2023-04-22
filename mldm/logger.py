@@ -11,7 +11,7 @@ from cleanfid import fid
 class ImageLogger(Callback):
     def __init__(self, batch_frequency=2000, max_images=4, clamp=True, increase_log_steps=True,
                  rescale=True, disabled=False, log_on_batch_idx=False, log_first_step=False,
-                 log_images_kwargs=None, fid_frequency=1000, train_batch_size=2):
+                 log_images_kwargs=None, fid_frequency=1000, loss_log_frequency=-1, train_batch_size=1):
         super().__init__()
         self.rescale = rescale
         self.batch_freq = batch_frequency
@@ -24,6 +24,7 @@ class ImageLogger(Callback):
         self.log_images_kwargs = log_images_kwargs if log_images_kwargs else {}
         self.log_first_step = log_first_step
         self.fid_frequency = fid_frequency
+        self.loss_log_frequency = loss_log_frequency
         self.gt_path = '/home/phebbar/Documents//cocoapi/coco/person/images/train2017/'
         self.gen_path = '/home/phebbar/Documents/ControlNet/image_log/'
         self.train_batch_size = train_batch_size
@@ -35,7 +36,7 @@ class ImageLogger(Callback):
         Makes a grid of images and saves it to disk
         """
         # get version of pytorch lightning logger
-        root = os.path.join(save_dir, "image_log", "version" + str(version) , split)
+        root = os.path.join(save_dir, "image_log", "version" + str(version) , split, "samples")
         for k in images:
             grid = torchvision.utils.make_grid(images[k], nrow=self.train_batch_size, pad_value=1)
             if self.rescale:
@@ -90,6 +91,69 @@ class ImageLogger(Callback):
 
             if is_train:
                 pl_module.train() # restore training mode
+    
+    @rank_zero_only 
+    def log_local_loss(self, save_dir, split, log_dict, global_step, current_epoch, batch_idx, version):
+        """
+        Decorator used to run this method only on the main process (with rank 0)
+        Makes a grid of images and saves it to disk
+        """
+        # get version of pytorch lightning logger
+        root = os.path.join(save_dir, "image_log", "version" + str(version) , split, "loss")
+        super_img = torch.cat( (log_dict["x_noisy"], log_dict["x_0_pred"] , log_dict["train_gt"] , log_dict["mask_gt"]), dim=0)
+        grid = torchvision.utils.make_grid(super_img, nrow=1, pad_value=1)
+        if self.rescale:
+            grid = (grid + 1.0) / 2.0  # [-1,1] -> 0,1; c,h,w
+        grid = grid.transpose(0, 1).transpose(1, 2).squeeze(-1)
+        grid = grid.numpy()
+        grid = (grid * 255).astype(np.uint8)
+        filename = "{}_gs-{:06}_e-{:06}_b-{:06}.png".format("loss", global_step, current_epoch, batch_idx)
+        path = os.path.join(root, filename)
+        os.makedirs(os.path.split(path)[0], exist_ok=True)
+        Image.fromarray(grid).save(path)
+        
+        # to log: x_text, loss_eps, loss_mask, timestep
+        # store text prompts in a csv file (text will have train_batch_text and val_batch_text)
+        if not os.path.exists(os.path.join(root, "metadata.csv")):
+            with open(os.path.join(root, "metadata.csv"), "w") as f:
+                f.write("Global Step, Current Epoch, Batch Index, Prompt, loss_eps, loss_mask, timestep\n")
+        # append text to prompts.txt in a new line with 
+        with open(os.path.join(root, "metadata.csv"), "a") as f:
+            f.write(str(global_step)+","+str(current_epoch)+","+ str(batch_idx)+","+ str(log_dict["x_text"])+","+ str(log_dict["loss_eps"])+","+ str(log_dict["loss_mask"])+","+ str(log_dict["timestep"])+"\n")
+        
+    def log_loss(self, pl_module, batch, batch_idx, split="train"):
+        """
+        Called by on_train_batch_end
+        Logs images to image_log/train or image_log/{split}
+        Calls the log_images function of the model 
+        """
+
+        check_idx = batch_idx  # if self.log_on_batch_idx else pl_module.global_step
+        if (self.loss_log_frequency > 0 and batch_idx % self.loss_log_frequency == 0 and
+                hasattr(pl_module, "log_images") and
+                callable(pl_module.log_images) and
+                self.max_images > 0):
+            is_train = pl_module.training
+            if is_train:
+                pl_module.eval() # set to eval mode
+
+            with torch.no_grad():
+                log_dict = pl_module.log_images(batch, split=split, **self.log_images_kwargs)
+
+            for k in log_dict:
+                if(k=="x_noisy" or k=="x_0_pred" or k=="train_gt" or k=="mask_gt"):
+                    if isinstance(log_dict[k], torch.Tensor):
+                        log_dict[k] = log_dict[k].detach().cpu()
+                        if self.clamp:
+                            log_dict[k] = torch.clamp(log_dict[k], -1., 1.)
+
+            self.log_local_loss(pl_module.logger.save_dir, split, log_dict
+                           pl_module.global_step, pl_module.current_epoch, batch_idx, pl_module.logger.version)
+
+            if is_train:
+                pl_module.train() # restore training mode
+
+            
 
     def calc_fid(self, pl_module, batch_idx, split="fid_val"):
         """
@@ -175,6 +239,7 @@ class ImageLogger(Callback):
         """
         if not self.disabled:
             self.log_img(pl_module, batch, batch_idx, split="train")
+            self.log_loss(pl_module, batch, batch_idx, split="train")
             self.calc_fid(pl_module, batch_idx, split="fid_val")
 
                     

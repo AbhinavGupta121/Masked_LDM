@@ -156,6 +156,40 @@ class MaskControlLDM(ControlLDM):
         text["val_batch_text"] = val_batch_samples[self.cond_stage_key]
         return log, text
 
+    def log_loss(self, batch, N=4, n_row=2, sample=False, ddim_steps=50, ddim_eta=0.0, return_keys=None,
+                   quantize_denoised=True, inpaint=True, plot_denoise_rows=False, plot_progressive_rows=True,
+                   plot_diffusion_rows=False, unconditional_guidance_scale=9.0, unconditional_guidance_label=None,
+                   use_ema_scope=True,
+                   **kwargs):
+        """
+        Called by the logger class, which in turn is called by pytorch lightning trainer.
+        """
+        use_ddim = ddim_steps is not None
+        log = dict()
+        def get_loss(new_batch, N):
+            z, c = self.get_input(new_batch, self.first_stage_key, bs=N)
+            c = c["c_crossattn"][0][:N]
+            N = min(z.shape[0], N)
+            uc_cross = self.get_unconditional_conditioning(N) # null text conditioning
+            uc_full = {"c_crossattn": [uc_cross]}
+            x_0_pred, loss_eps, loss_mask, timestep= self.get_mask_loss(z, batch['mask'], cond={"c_crossattn": [c]})
+            x_noisy = self.decode_first_stage(z)
+            # print(new_batch['jpg'].permute(0, 3, 1, 2))
+            return x_noisy, loss_eps, loss_mask, timestep, x_0_pred, new_batch['jpg'].permute(0, 3, 1, 2), new_batch['mask'].permute(0, 1, 2) 
+        
+        print("---------------Logging Train Loss Samples---------------")
+        train_batch_sample = next(iter(self.train_dataloader_log))
+        x_noisy, loss_eps, loss_mask, timestep, x_0_pred, train_gt, mask_gt = get_loss(train_batch_sample, N)
+        log['x_noisy'] = x_noisy.to('cpu')
+        log["x_text"] = train_batch_sample[self.cond_stage_key]    
+        log['loss_eps'] = loss_eps.to('cpu')
+        log['loss_mask'] = loss_mask.to('cpu')
+        log['timestep'] = timestep.to('cpu')
+        log['x_0_pred'] = x_0_pred.to('cpu')
+        log['train_gt'] = train_gt.to('cpu')
+        log['mask_gt'] = mask_gt.to('cpu')
+        return log
+
     @torch.no_grad()
     def sample_log(self, cond, batch_size, ddim, ddim_steps, **kwargs):
         ddim_sampler = DDIMSampler(self)
