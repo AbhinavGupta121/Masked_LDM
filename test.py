@@ -80,12 +80,16 @@ import cv2
 # # cv2.imwrite('resized.png', resized_img)
 
 # dataset = Custom_Train_Dataset()
-dataset = Custom_FID_Dataset()
+dataset = Custom_Val_Dataset()
+# dataset = Custom_FID_Dataset()
 dataloader = DataLoader(dataset, batch_size=1, shuffle=False, num_workers=24)
 for batchid, batch in enumerate(dataloader):
     si = batch["jpg"].shape
     sm = batch["mask"].shape
-    if(si[1]%64 != 0 or si[2]%64 != 0 or sm[1]%64 != 0 or sm[2]%64 != 0):
-        print(si, sm)
-        break
-    # print(batch["jpg"].shape, batch["mask"].shape)
+    # if(si[1]%64 != 0 or si[2]%64 != 0 or sm[1]%64 != 0 or sm[2]%64 != 0):
+    #     print("error", si, sm)
+    #     break
+    # if(si[1]!= 512 or si[2]!= 512 or sm[1] != 512 or sm[2]!=512):
+        # print("error", si, sm)
+        # break
+    print(batch["jpg"].shape, batch["mask"].shape)

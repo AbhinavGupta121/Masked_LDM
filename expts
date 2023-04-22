@@ -1,0 +1,19 @@
+188: 
+both losses with mask_weight = 1, ddpm_mask_thresh= 350
+
+191: 
+only perceptual loss, no ddpm_mask_thresh
+
+212: 
+loss = (1-mask_weight)*sd_loss + mask_weight*mask Loss, where mask_weight= 0.7
+image size increased to 512x(lesser) same aspect ratio
+ddpm_mask_thresh = 200
+
+215:
+Baseline run with 512xlesser image size
+
+216: 
+Baseline run with 512x 512 image size
+
+217:
+same as 212 but image size increased to 512x512

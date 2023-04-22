@@ -7,6 +7,8 @@ from PIL import Image
 from pytorch_lightning.callbacks import Callback
 from pytorch_lightning.utilities.distributed import rank_zero_only
 from cleanfid import fid
+from PIL import Image, ImageDraw, ImageFont
+
 
 class ImageLogger(Callback):
     def __init__(self, batch_frequency=2000, max_images=4, clamp=True, increase_log_steps=True,
@@ -100,26 +102,52 @@ class ImageLogger(Callback):
         """
         # get version of pytorch lightning logger
         root = os.path.join(save_dir, "image_log", "version" + str(version) , split, "loss")
+        # print sizes of tensors
+        log_dict["mask_gt"] = torch.tile(log_dict["mask_gt"], (1,3,1,1))
         super_img = torch.cat( (log_dict["x_noisy"], log_dict["x_0_pred"] , log_dict["train_gt"] , log_dict["mask_gt"]), dim=0)
-        grid = torchvision.utils.make_grid(super_img, nrow=1, pad_value=1)
+        grid = torchvision.utils.make_grid(super_img, nrow=4, pad_value=1)
         if self.rescale:
             grid = (grid + 1.0) / 2.0  # [-1,1] -> 0,1; c,h,w
         grid = grid.transpose(0, 1).transpose(1, 2).squeeze(-1)
         grid = grid.numpy()
         grid = (grid * 255).astype(np.uint8)
+        font = ImageFont.truetype("arial.ttf", 15, encoding="unic")
+        text_image = Image.new('RGB', (grid.shape[1], 100), color=(255, 255, 255))
+        draw = ImageDraw.Draw(text_image)
+        # draw.text((10, 5), "Timestep" + str(log_dict["timestep"]), fill=(0, 0, 0))
+        # draw text with bigger font size
+        draw.text((10, 5), "Timestep: " + str(log_dict["timestep"].item()), fill=(0, 0, 0), font=font)
+        draw.text((10, 25), "Prompt: " + str(log_dict["x_text"]), fill=(0, 0, 0), font=font)
+        draw.text((10, 45), "Loss Mask: " + str(log_dict["loss_mask"].item()), fill=(0, 0, 0),  font=font)
+        draw.text((10, 65), "Loss SD: " + str(log_dict["loss_sd"].item()), fill=(0, 0, 0),  font=font)
+        # Merge the grid and text images
+        merged_width = grid.shape[1]
+        merged_height = grid.shape[0] + text_image.height
+        merged_size = (merged_width, merged_height)
+        merged_image = Image.new('RGB', merged_size)
+
+        # Merge the grid and text images
+        merged_image = Image.new('RGB', (grid.shape[1], grid.shape[0] + text_image.height))
+        grid_box = (0, 0, grid.shape[1], grid.shape[0])
+        text_box = (0, grid.shape[0], text_image.width, merged_height)
+        merged_image.paste(Image.fromarray(grid), grid_box)
+        merged_image.paste(text_image, text_box)
+
         filename = "{}_gs-{:06}_e-{:06}_b-{:06}.png".format("loss", global_step, current_epoch, batch_idx)
         path = os.path.join(root, filename)
         os.makedirs(os.path.split(path)[0], exist_ok=True)
-        Image.fromarray(grid).save(path)
+        # convert merged_image to numpy array and save
+        merged_image = np.array(merged_image).astype(np.uint8)
+        Image.fromarray(merged_image).save(path)
         
-        # to log: x_text, loss_eps, loss_mask, timestep
+        # to log: x_text, loss_sd, loss_mask, timestep
         # store text prompts in a csv file (text will have train_batch_text and val_batch_text)
         if not os.path.exists(os.path.join(root, "metadata.csv")):
             with open(os.path.join(root, "metadata.csv"), "w") as f:
-                f.write("Global Step, Current Epoch, Batch Index, Prompt, loss_eps, loss_mask, timestep\n")
+                f.write("Global Step, Current Epoch, Batch Index, Prompt, loss_sd, loss_mask, timestep\n")
         # append text to prompts.txt in a new line with 
         with open(os.path.join(root, "metadata.csv"), "a") as f:
-            f.write(str(global_step)+","+str(current_epoch)+","+ str(batch_idx)+","+ str(log_dict["x_text"])+","+ str(log_dict["loss_eps"])+","+ str(log_dict["loss_mask"])+","+ str(log_dict["timestep"])+"\n")
+            f.write(str(global_step)+","+str(current_epoch)+","+ str(batch_idx)+","+ str(log_dict["x_text"])+","+ str(log_dict["loss_sd"])+","+ str(log_dict["loss_mask"])+","+ str(log_dict["timestep"])+"\n")
         
     def log_loss(self, pl_module, batch, batch_idx, split="train"):
         """
@@ -130,15 +158,15 @@ class ImageLogger(Callback):
 
         check_idx = batch_idx  # if self.log_on_batch_idx else pl_module.global_step
         if (self.loss_log_frequency > 0 and batch_idx % self.loss_log_frequency == 0 and
-                hasattr(pl_module, "log_images") and
-                callable(pl_module.log_images) and
+                hasattr(pl_module, "log_loss") and
+                callable(pl_module.log_loss) and
                 self.max_images > 0):
             is_train = pl_module.training
             if is_train:
                 pl_module.eval() # set to eval mode
 
             with torch.no_grad():
-                log_dict = pl_module.log_images(batch, split=split, **self.log_images_kwargs)
+                log_dict = pl_module.log_loss(batch, split=split, **self.log_images_kwargs)
 
             for k in log_dict:
                 if(k=="x_noisy" or k=="x_0_pred" or k=="train_gt" or k=="mask_gt"):
@@ -147,8 +175,8 @@ class ImageLogger(Callback):
                         if self.clamp:
                             log_dict[k] = torch.clamp(log_dict[k], -1., 1.)
 
-            self.log_local_loss(pl_module.logger.save_dir, split, log_dict
-                           pl_module.global_step, pl_module.current_epoch, batch_idx, pl_module.logger.version)
+            self.log_local_loss(pl_module.logger.save_dir, split, log_dict,
+                    pl_module.global_step, pl_module.current_epoch, batch_idx, pl_module.logger.version)
 
             if is_train:
                 pl_module.train() # restore training mode
@@ -206,24 +234,23 @@ class ImageLogger(Callback):
                                 with open(os.path.join(gen_path_batch, "samples_cfg_prompts.txt"), "a") as f:
                                     f.write(str(pl_module.global_step)+","+str(pl_module.current_epoch)+","+ str(batch_idx_fid)+","+ text[i]+"\n")
 
-            score = self.compute_fid(self.gt_path, gen_path_batch)
+            score = self.compute_fid(self.gt_path, gen_path_batch, device = pl_module.device)
             print('FID:', score)
             #log using pytorch lightning
             pl_module.log('FID', score, on_step=True, on_epoch=False, prog_bar = False, logger=True, batch_size = self.train_batch_size)
             if is_train:
                 pl_module.train() # restore training mode
 
-    def compute_fid(self, gt_path, gen_path,custom_name="fid_stats_coco",mode = "clean"):
-
+    def compute_fid(self, gt_path, gen_path,custom_name="fid_stats_coco",mode = "clean", device="cpu"):
         """ Compute FID score for a given dataset and generator path"""
-
+        print("DEVICE FOR FID:", device)
         if(fid.test_stats_exists(custom_name, mode=mode)):
             print("FID stats found")
-            score = fid.compute_fid(gen_path, dataset_name=custom_name, mode="clean", dataset_split="custom")
+            score = fid.compute_fid(gen_path, dataset_name=custom_name, mode="clean", dataset_split="custom", device = device,use_dataparallel=False)
         else:
             print("Computing FID stats for Custom GT data")
-            fid.make_custom_stats(custom_name, gt_path, mode="clean")
-            score = fid.compute_fid(gen_path, dataset_name=custom_name, mode="clean", dataset_split="custom")
+            fid.make_custom_stats(custom_name, gt_path, mode="clean", device = device)
+            score = fid.compute_fid(gen_path, dataset_name=custom_name, mode="clean", dataset_split="custom", device = device,use_dataparallel=False)
 
         return score
 
@@ -239,7 +266,8 @@ class ImageLogger(Callback):
         """
         if not self.disabled:
             self.log_img(pl_module, batch, batch_idx, split="train")
-            self.log_loss(pl_module, batch, batch_idx, split="train")
+            if(pl_module.model_loss_type == "mask"):
+                self.log_loss(pl_module, batch, batch_idx, split="train")
             self.calc_fid(pl_module, batch_idx, split="fid_val")
 
                     

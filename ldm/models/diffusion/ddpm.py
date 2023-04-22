@@ -381,20 +381,20 @@ class DDPM(pl.LightningModule):
 
     def p_losses(self, x_start, t, noise=None):
         noise = default(noise, lambda: torch.randn_like(x_start))
-        x_noisy = self.q_sample(x_start=x_start, t=t, noise=noise)
-        model_out = self.model(x_noisy, t)
+        x_noisy = self.q_sample(x_start=x_start, t=t, noise=noise) #xT found from the forward diffusion process. x_start is your ground truth image
+        model_out = self.model(x_noisy, t) # this is not self(). It is self.model():
 
         loss_dict = {}
-        if self.parameterization == "eps":
+        if self.parameterization == "eps": # this is the default. this is target noise in diffusion process.
             target = noise
         elif self.parameterization == "x0":
             target = x_start
         elif self.parameterization == "v":
-            target = self.get_v(x_start, noise, t)
+            target = self.get_v(x_start, noise, t) 
         else:
             raise NotImplementedError(f"Parameterization {self.parameterization} not yet supported")
 
-        loss = self.get_loss(model_out, target, mean=False).mean(dim=[1, 2, 3])
+        loss = self.get_loss(model_out, target, mean=False).mean(dim=[1, 2, 3]) #L 1,2 loss between model_out and target
 
         log_prefix = 'train' if self.training else 'val'
 
@@ -849,6 +849,7 @@ class LatentDiffusion(DDPM): # class for latent diffusion
         return loss
 
     def forward(self, x, c, *args, **kwargs):
+
         t = torch.randint(0, self.num_timesteps, (x.shape[0],), device=self.device).long()
         if self.model.conditioning_key is not None:
             assert c is not None
@@ -857,7 +858,9 @@ class LatentDiffusion(DDPM): # class for latent diffusion
             if self.shorten_cond_schedule:  # TODO: drop this option
                 tc = self.cond_ids[t].to(self.device)
                 c = self.q_sample(x_start=c, t=tc, noise=torch.randn_like(c.float()))
-        return self.p_losses(x, c, t, *args, **kwargs)
+
+            return self.p_losses(x, c, t, *args, **kwargs)
+
 
     def apply_model(self, x_noisy, t, cond, return_ids=False):
         if isinstance(cond, dict):
@@ -897,11 +900,12 @@ class LatentDiffusion(DDPM): # class for latent diffusion
     def p_losses(self, x_start, cond, t, noise=None):
         noise = default(noise, lambda: torch.randn_like(x_start))
         x_noisy = self.q_sample(x_start=x_start, t=t, noise=noise)
-        model_output = self.apply_model(x_noisy, t, cond) # this has been overloaded in cldm
+        model_output = self.apply_model(x_noisy, t, cond) # apply_model has been overloaded in cldm.
 
         loss_dict = {}
         prefix = 'train' if self.training else 'val'
 
+        #Target depends on the parameterization uses. Either predict eps directly or x0, or v.
         if self.parameterization == "x0":
             target = x_start
         elif self.parameterization == "eps":
@@ -930,6 +934,7 @@ class LatentDiffusion(DDPM): # class for latent diffusion
         loss_dict.update({f'{prefix}/loss': loss})
 
         return loss, loss_dict
+
 
     def p_mean_variance(self, x, c, t, clip_denoised: bool, return_codebook_ids=False, quantize_denoised=False,
                         return_x0=False, score_corrector=None, corrector_kwargs=None):
@@ -1331,8 +1336,7 @@ class DiffusionWrapper(pl.LightningModule):
 
     def forward(self, x, t, c_concat: list = None, c_crossattn: list = None, c_adm=None):
         """
-        Called when self.model() is called
-        This is not being called anywhere in the ControlNet pipeline, only self.model.diffusion_model() is called
+        Called when self.model() is called, links to self.model.diffusion_model
         """
         if self.conditioning_key is None:
             out = self.diffusion_model(x, t)

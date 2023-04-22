@@ -39,6 +39,7 @@ def main():
     only_mid_control = False
     calculate_fid = True
     save_model_every_n_steps = 10000
+    model_loss_type = 'ddpm' # no loss change for baseline
 
     # First use cpu to load models. Pytorch Lightning will automatically move it to GPUs.
     model = create_model('./models/mldm_v15.yaml').cpu()
@@ -48,6 +49,7 @@ def main():
     model.sd_locked = sd_locked
     model.only_mid_control = only_mid_control
     model.calculate_fid = calculate_fid
+    model.model_loss_type = model_loss_type
 
     # Misc
     logger = ImageLogger(batch_frequency=logger_freq, fid_frequency=fid_logger_freq, train_batch_size=batch_size)

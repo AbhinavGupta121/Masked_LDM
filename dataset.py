@@ -10,6 +10,7 @@ import random
 
 
 def custom_resize(img, mask):
+    img_size = 512
     # img shape is (height, width, channels)
     height, width = img.shape[:2]
     if(height < width):
@@ -21,14 +22,15 @@ def custom_resize(img, mask):
         mask = mask.transpose(1, 0)
         return img, mask
     else:
+        factor_array = np.array([i for i in range(64, img_size+1, 64)])
         # get the scale factor for height
-        if(height > 256): # resize img if max_dim > 256
+        if(height > img_size): # resize img if max_dim > 256
             # Determine the scaling factor to resize the image
-            scale_factor = 256 / height
+            scale_factor = img_size / height
         else:
             # scale such that height is a multiple of 64
             # get closest multiple of 64
-            dist = np.abs(np.array([64, 128, 192, 256]) - height)
+            dist = np.abs(factor_array - height)
             closest_multiple = (1+np.argmin(dist))*64
             scale_factor = closest_multiple / height
             # scale_factor = max( 64 / height, 128/height, 256/height)
@@ -46,7 +48,7 @@ def custom_resize(img, mask):
         elif(wi_new%64 < 10 or wi_new%64 > 54): #the width is very near to a multiple of 64, so just resize
             # print("close", end=' - ')
             # get nearest multiple of 64
-            dist = np.abs(np.array([64, 128, 192, 256]) - wi_new)
+            dist = np.abs(factor_array - wi_new)
             closest_multiple = (1+np.argmin(dist))*64
             scale_factor_x = closest_multiple / width
             resized_img = cv2.resize(img, None, fx=scale_factor_x, fy=scale_factor, interpolation=cv2.INTER_LINEAR)
@@ -66,6 +68,27 @@ def custom_resize(img, mask):
             # print("center crop", resized_img.shape, resized_mask.shape)
     
     return resized_img, resized_mask
+
+def resize_square(img, mask):
+    # outputs center cropped and resized image of size 512x512
+    img_size = 512
+    # center crop image to be square
+    height, width = img.shape[:2]
+    if(height > width):
+        # transpose image along 0 and 1 axis
+        img, mask = resize_square(img.transpose(1, 0, 2), mask.transpose(1, 0))
+        # transpose back
+        img = img.transpose(1, 0, 2)
+        mask = mask.transpose(1, 0)
+        return img, mask
+    else:
+        # center crop image
+        resized_img = img[:, (width - height) // 2 : (width - height) // 2 + height, :]
+        resized_mask = mask[:, (width - height) // 2 : (width - height) // 2 + height]
+        # resize image to 512x512
+        resized_img = cv2.resize(resized_img, (img_size, img_size), interpolation=cv2.INTER_LINEAR)
+        resized_mask = cv2.resize(resized_mask, (img_size, img_size), interpolation=cv2.INTER_LINEAR)
+        return resized_img, resized_mask
 
 class Custom_Train_Dataset(Dataset):
     def __init__(self):
@@ -98,7 +121,7 @@ class Custom_Train_Dataset(Dataset):
         target = cv2.cvtColor(target, cv2.COLOR_BGR2RGB)
         
         # print(target.shape, mask.shape, "from inside1")
-        target, mask = custom_resize(target, mask)
+        target, mask = resize_square(target, mask)
         # print(target.shape, mask.shape, "from inside2\n")
         target = Image.fromarray(target)
         target = self.transform(target)
@@ -148,7 +171,7 @@ class Custom_Val_Dataset(Dataset):
         # print("hi2", type(target), type(prompt))
         # Do not forget that OpenCV read images in BGR order.
         target = cv2.cvtColor(target, cv2.COLOR_BGR2RGB)
-        target, mask = custom_resize(target, mask)
+        target, mask = resize_square(target, mask)
         target = Image.fromarray(target)
         target = self.transform(target)
         target = np.array(target)
@@ -201,7 +224,7 @@ class Custom_FID_Dataset(Dataset):
         # print("hi2", type(target), type(prompt))
         # Do not forget that OpenCV read images in BGR order.
         target = cv2.cvtColor(target, cv2.COLOR_BGR2RGB)
-        target, mask = custom_resize(target, mask)
+        target, mask = resize_square(target, mask)
         target = Image.fromarray(target)
         target = self.transform(target)
         target = np.array(target)

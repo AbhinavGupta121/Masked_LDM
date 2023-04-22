@@ -16,8 +16,7 @@ from cldm.model import create_model, load_state_dict
 # - Code for 1 step prediction
 # - Mask is also there in the GT now, so multiply the loss by the mask
 
-# TODO for logging:
-# - Store train and val prompts in a txt file instead
+# TODO: @abhinav - Go through train fit. At a DDPM step, get UNET output, call ddim function for calculating pred_x0.
 
 
 def main():
@@ -29,6 +28,7 @@ def main():
     learning_rate = 1e-5
     sd_locked = True
     only_mid_control = False
+    calculate_fid = True
 
     # First use cpu to load models. Pytorch Lightning will automatically move it to GPUs.
     model = create_model('./models/mldm_v15.yaml').cpu()
@@ -37,6 +37,7 @@ def main():
     model.learning_rate = learning_rate
     model.sd_locked = sd_locked
     model.only_mid_control = only_mid_control
+    model.calculate_fid = calculate_fid
 
     model.eval()
 
@@ -53,7 +54,7 @@ def main():
 
     
     # Train!
-    # trainer.fit(model, val_dataloader_log) 
+    trainer.fit(model, val_dataloader_log) 
     # trainer.validate(model, val_dataloader_log)
 
     # Calls the training_step function in model class (in the ddpm.py file)
