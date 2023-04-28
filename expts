@@ -17,3 +17,13 @@ Baseline run with 512x 512 image size
 
 217:
 same as 212 but image size increased to 512x512
+
+220:
+updated mask loss = mask_loss*512*512/num_px_mask
+mask_weight = 0.5, 
+ddpm_mask_thresh = 200,
+
+221: 
+updated mask loss = mask_loss*512*512/num_px_mask, 
+mask_weight = 0.9, 
+ddpm_mask_thresh = 200,

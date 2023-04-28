@@ -26,6 +26,7 @@ from dataset import Custom_Val_Dataset
 from torch.utils.data import DataLoader
 from cldm.model import load_state_dict
 import matplotlib.pyplot as plt
+from dpmsolver import DPM_Solver
 
 def isfunction(object):
     """Return true if the object is a user-defined function.
@@ -367,10 +368,18 @@ class MaskControlLDM(ControlLDM):
             x0_pred_img = self.decode_first_stage(x0_pred)
             x0_gt = x0_gt.permute(0, 3, 1, 2)
             mask = mask.permute(0, 3, 1, 2)
+            # clip x_pred_img to[-1, 1]
+            x0_pred_img = torch.clamp(x0_pred_img, -1, 1)
             # print devices
             # print(x0_pred_img.device, x0_gt.device, mask.device)
             # print(x0_pred_img.shape, x0_gt.shape, mask.shape)
-            loss_mask = loss_fn.forward(x0_pred_img*mask, x0_gt*mask).mean()
+            # print max and min values of mask, gt and pred
+            # print("MAX MIN of pred", torch.max(x0_pred_img), torch.min(x0_pred_img), x0_pred_img.shape)
+            # print("MAX MIN of gt", torch.max(x0_gt), torch.min(x0_gt), x0_gt.shape)
+            # print("MAX MIN of mask", torch.max(mask), torch.min(mask), mask.shape)
+            # check if all elemts of mask are 0 or 1
+            # print("unique values of mask", torch.unique(mask))
+            loss_mask = loss_fn.forward(x0_pred_img*mask, x0_gt*mask).mean()*(x0_gt.shape[2]*x0_gt.shape[3]/torch.sum(mask))
             loss_dict.update({f'{prefix}/loss_mask': loss_mask})
             # loss = loss_mask
             loss = (1-self.mask_weight)*loss + self.mask_weight * loss_mask

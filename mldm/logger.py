@@ -191,7 +191,7 @@ class ImageLogger(Callback):
         """
         if(pl_module.calculate_fid==False):
             return
-        if (batch_idx % self.fid_frequency == 0): # log every fid_frequency batches
+        if ( pl_module.global_step % self.fid_frequency == 0): # log every fid_frequency batches
 
             print("---------------Calculating FID---------------") 
             gen_path_batch = os.path.join(self.gen_path, "version" + str(pl_module.logger.version), "fid_val", "step"+str(pl_module.global_step))

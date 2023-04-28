@@ -8,6 +8,7 @@ from torch.utils.data import DataLoader
 from dataset import Custom_Train_Dataset, Custom_Val_Dataset, Custom_FID_Dataset
 from mldm.logger import ImageLogger
 from cldm.model import create_model, load_state_dict
+import numpy as np
 # TODO for loss:
 # - Code for 1 step prediction
 # - Mask is also there in the GT now, so multiply the loss by the mask
@@ -29,11 +30,16 @@ class CustomCheckpointCallback(pl.callbacks.ModelCheckpoint):
             super().on_batch_end(trainer, pl_module)
 
 def main():
+    # set global seed
+    pl.seed_everything(42)
+    # set numpy global seed
+    np.random.seed(42)
+
     # Configs
     resume_path = './models/control_sd15_openpose.pth' #start from openpose pretrained model
     batch_size = 1
     logger_freq = 300 # log images frequency
-    fid_logger_freq = 5000 # log fid frequency
+    fid_logger_freq = 30000 # log fid frequency
     loss_log_frequency = 300 # log loss frequency
     learning_rate = 1e-5
     sd_locked = True
@@ -42,7 +48,7 @@ def main():
     save_model_every_n_steps = 10000
     model_loss_type = 'mask'
     ddpm_mask_thresh = 200 # timestep below which mask loss is trained
-    mask_weight = 0.7 # loss = (1-mask weight)*sd_loss + mask_weight * mask_loss
+    mask_weight = 0.9 # loss = (1-mask weight)*sd_loss + mask_weight * mask_loss
 
     # First use cpu to load models. Pytorch Lightning will automatically move it to GPUs.
     model = create_model('./models/mldm_v15.yaml').cpu()
@@ -59,7 +65,7 @@ def main():
     # Misc
     logger = ImageLogger(batch_frequency=logger_freq, fid_frequency=fid_logger_freq, loss_log_frequency=loss_log_frequency, train_batch_size=batch_size)
     checkpointer= CustomCheckpointCallback(save_every_n_steps=save_model_every_n_steps)
-    trainer = pl.Trainer(gpus=[1], precision=32, callbacks=[logger, checkpointer])
+    trainer = pl.Trainer(gpus=[0], precision=32, callbacks=[logger, checkpointer])
     # can pass resume_from_checkpoint=resume_path to resume training
 
     train_dataloader = DataLoader(Custom_Train_Dataset(), num_workers=24, batch_size=batch_size, shuffle=True)

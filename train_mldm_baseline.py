@@ -8,6 +8,7 @@ from torch.utils.data import DataLoader
 from dataset import Custom_Train_Dataset, Custom_Val_Dataset, Custom_FID_Dataset
 from mldm.logger import ImageLogger
 from cldm.model import create_model, load_state_dict
+import numpy as np
 # TODO for loss:
 # - Code for 1 step prediction
 # - Mask is also there in the GT now, so multiply the loss by the mask
@@ -29,6 +30,11 @@ class CustomCheckpointCallback(pl.callbacks.ModelCheckpoint):
             super().on_batch_end(trainer, pl_module)
 
 def main():
+    # set global seed
+    pl.seed_everything(42)
+    # set numpy global seed
+    np.random.seed(42)
+    
     # Configs
     resume_path = './models/control_sd15_openpose.pth' #start from openpose pretrained model
     batch_size = 1
