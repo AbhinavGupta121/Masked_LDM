@@ -20,6 +20,9 @@ gpu_id = 1
 device = "cuda"+":"+str(gpu_id)
 torch.cuda.set_device(device)
 
+pl.seed_everything(42)
+np.random.seed(42)
+
 def create_model_and_sampler(version, use_control=True):
     model = create_model('models/mldm_v15.yaml').cpu()
     model.control_model.del_input_hint_block() # delete the input hint block as we don't need it

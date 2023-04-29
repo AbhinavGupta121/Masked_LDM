@@ -9,86 +9,135 @@ from dataset import Custom_Train_Dataset, Custom_Val_Dataset, Custom_FID_Dataset
 from mldm.logger import ImageLogger
 from cldm.model import create_model, load_state_dict
 import numpy as np
+from cldm.ddim_hacked import DDIMSampler
+import glob
+import torch
+import einops
 import os
-from pytorch_lightning.callbacks import ModelCheckpoint
+from PIL import Image
+from cleanfid import fid
 
-# TODO for loss:
-# - Code for 1 step prediction
-# - Mask is also there in the GT now, so multiply the loss by the mask
+# global config
+gpu_id = 1
+batch_size = 8
+num_samples = 1000
+model_identifier = "stable_diffusion"
+use_control= False
+version = None
+gt_path = '/home/phebbar/Documents//cocoapi/coco/person/images/train2017/'
 
-# TODO for logging:
-# - log model weights more frequently
+device = "cuda"+":"+str(gpu_id)
+torch.cuda.set_device(device)
 
-#TODO: @abhinav - Go through train fit. At a DDPM step, get UNET output, call ddim function for calculating pred_x0. 
-# Calculate VGG loss using pred_x0 and GT image masks.
+pl.seed_everything(42)
+np.random.seed(42)
+
+def create_model_and_sampler(version, use_control=True):
+    model = create_model('models/mldm_v15.yaml').cpu()
+    model.use_control = use_control
+    if(version == None): # load default controlnet weights with 0 convolutional layers if no version is specified
+        model.load_model_default('./models/control_sd15_openpose.pth') # load controlnet with stable diffusion weights copied.
+        model.control_model.del_input_hint_block() # delete the input hint block as we don't need it
+    else:
+        model.control_model.del_input_hint_block() # delete the input hint block as we don't need it
+        file_list = glob.glob(f'lightning_logs/version_{version}/checkpoints/*.ckpt')
+        if(len(file_list) == 0):
+            print("No checkpoint file found")
+            return None, None
+        checkpoint_path = file_list[0]
+        # load model from checkpoint using pytorch lightning
+        state_dict = torch.load(checkpoint_path)['state_dict']
+        model.load_state_dict(state_dict)
+
+    model = model.cuda()
+    ddim_sampler = DDIMSampler(model)
+    return model, ddim_sampler
+
+def model_sample(prompt, n_prompt, model, num_samples, ddim_sampler, ddim_steps, eta, unconditional_guidance_scale, strength=1, guess_mode=True):
+    cond = {"c_crossattn": [model.get_learned_conditioning([prompt] * num_samples)]}
+    un_cond = {"c_crossattn": [model.get_learned_conditioning([n_prompt] * num_samples)]}
+    shape = (4, 64, 64)
+
+    model.control_scales = [strength * (0.825 ** float(12 - i)) for i in range(13)] if guess_mode else ([strength] * 13)  # Magic number. IDK why. Perhaps because 0.825**12<0.01 but 0.826**12>0.01
+    samples, intermediates = ddim_sampler.sample(ddim_steps, num_samples,
+                                                    shape, cond, verbose=False, eta=eta,
+                                                    unconditional_guidance_scale=unconditional_guidance_scale,
+                                                    unconditional_conditioning=un_cond)
+
+    x_samples = model.decode_first_stage(samples)
+    x_samples = (einops.rearrange(x_samples, 'b c h w -> b h w c') * 127.5 + 127.5).cpu().numpy().clip(0, 255).astype(np.uint8)
+
+    results = [x_samples[i] for i in range(num_samples)]
+    return results
+
+def model_sample_batch(batch, model, sampler, sampler_config):
+    log = dict()
+    num_samples = batch['jpg'].shape[0]
+    z, c = model.get_input(batch, model.first_stage_key, bs=batch_size)
+    c = c["c_crossattn"][0][:batch_size]
+    uc_cross = model.get_unconditional_conditioning(batch_size)
+    uc_full = {"c_crossattn": [uc_cross]}
+    cond={"c_crossattn": [c]}
+
+    # get samples using unconditional guidance
+    samples, intermediates = sampler.sample(sampler_config["ddim_steps"], num_samples,
+                                                    (4, 64, 64), cond, verbose=False, eta=0,
+                                                    unconditional_guidance_scale=9,
+                                                    unconditional_conditioning=uc_full)
+    x_samples = model.decode_first_stage(samples)
+    x_samples = (einops.rearrange(x_samples, 'b c h w -> b h w c') * 127.5 + 127.5).cpu().numpy().clip(0, 255).astype(np.uint8)
+
+    results = [x_samples[i] for i in range(num_samples)]
+    return results
+
+def compute_fid(gt_path, gen_path, custom_name="fid_stats_coco",mode = "clean", device="cpu"):
+    """ Compute FID score for a given dataset and generator path"""
+    print("DEVICE FOR FID:", device)
+    if(fid.test_stats_exists(custom_name, mode=mode)):
+        print("FID stats found")
+        score = fid.compute_fid(gen_path, dataset_name=custom_name, mode="clean", dataset_split="custom", device = device,use_dataparallel=False)
+    else:
+        print("Computing FID stats for Custom GT data")
+        fid.make_custom_stats(custom_name, gt_path, mode="clean", device = device)
+        score = fid.compute_fid(gen_path, dataset_name=custom_name, mode="clean", dataset_split="custom", device = device,use_dataparallel=False)
+
+    return score
+
+def calc_fid(model, sampler, strength=1, num_samples=1000):
+    print("---------------Calculating FID---------------") 
+    gen_path_batch = os.path.join("FID", model_identifier)
+    # make directory if it doesn't exist
+    if not os.path.exists(gen_path_batch):
+        os.makedirs(gen_path_batch)
+    custom_dataloader = DataLoader(Custom_FID_Dataset(num_samples), num_workers=24, batch_size=batch_size, shuffle=False)
+    model.control_scales = [strength] * 13 
+    model.eval()
+    count = -1
+    # create a samples_cfg_prompts.txt file in gen_path_batch
+    if not os.path.exists(os.path.join(gen_path_batch, "samples_cfg_prompts.txt")):
+        with open(os.path.join(gen_path_batch, "samples_cfg_prompts.txt"), "a") as f:
+            f.write("Count, Prompt\n")
+
+    with torch.no_grad():
+        for batch_idx_fid, batch_fid in enumerate(custom_dataloader):
+            images = model_sample_batch(batch_fid, model, sampler, {"ddim_steps":50})
+            text = batch_fid["txt"]
+            for i in range(len(images)):
+                count = count + 1
+                img = Image.fromarray(images[i])
+                img.save(gen_path_batch + f"/{count}.png")
+                with open(os.path.join(gen_path_batch, "samples_cfg_prompts.txt"), "a") as f:
+                    f.write(str(count)+","+ text[i]+"\n")
+
+    score = compute_fid(gt_path, gen_path_batch, device = model.device)
+    print('FID:', score)
 
 def main():
-    # set global seed
-    pl.seed_everything(42)
-    # set numpy global seed
-    np.random.seed(42)
-
-    # Configs
-    resume_path = './models/control_sd15_openpose.pth' #start from openpose pretrained model
-    batch_size = 1
-    logger_freq = 300 # log images frequency
-    fid_logger_freq = 30000 # log fid frequency
-    loss_log_frequency = 300 # log loss frequency
-    learning_rate = 1e-5
-    sd_locked = True
-    only_mid_control = False
-    calculate_fid = False
-    save_model_every_n_steps = 10000
-    model_loss_type = 'mask'
-    ddpm_mask_thresh = 200 # timestep below which mask loss is trained
-    mask_weight = 0.9 # loss = (1-mask weight)*sd_loss + mask_weight * mask_loss
-    use_control = True
-
-    # First use cpu to load models. Pytorch Lightning will automatically move it to GPUs.
-    model = create_model('./models/mldm_v15.yaml').cpu()
-    model.load_model_default(resume_path) # load controlnet with stable diffusion weights copied.
-    model.control_model.del_input_hint_block() # delete the input hint block as we don't need it
-    model.learning_rate = learning_rate
-    model.sd_locked = sd_locked
-    model.only_mid_control = only_mid_control
-    model.calculate_fid = calculate_fid
-    model.model_loss_type = model_loss_type
-    model.ddpm_mask_thresh = ddpm_mask_thresh
-    model.mask_weight = mask_weight
-    model.use_control = use_control
-
-    checkpointer = ModelCheckpoint(
-        save_top_k=1,
-        monitor="global_step",
-        mode="max",
-        every_n_train_steps=save_model_every_n_steps,
-        filename="mldm-{epoch:02d}-{global_step}",
-    )
-
-    # Misc
-    logger = ImageLogger(batch_frequency=logger_freq, fid_frequency=fid_logger_freq, loss_log_frequency=loss_log_frequency, train_batch_size=batch_size)
-    trainer = pl.Trainer(gpus=[1], precision=32, callbacks=[logger, checkpointer])
-    # can pass resume_from_checkpoint=resume_path to resume training
-
-    train_dataloader = DataLoader(Custom_Train_Dataset(), num_workers=24, batch_size=batch_size, shuffle=True)
-    train_dataloader_log = DataLoader(Custom_Train_Dataset(), num_workers=24, batch_size=batch_size, shuffle=True)
-    val_dataloader_log = DataLoader(Custom_Val_Dataset(), num_workers=24, batch_size=batch_size, shuffle=True)
-    val_dataloader_fid = DataLoader(Custom_FID_Dataset(), num_workers=24, batch_size=batch_size, shuffle=False)
-    model.store_dataloaders(train_dataloader_log, val_dataloader_log, val_dataloader_fid)
-
-    # Train!
-    trainer.fit(model, train_dataloader) 
-    # Calls the training_step function in model class (in the ddpm.py file)
-    # The model is of type ControlLDM which inherits from LatentDiffusion
-    # When .fit() is called, the functions of the model class are called in this format:
-    # training_step -> shared_step -> forward -> self.p_losses -> apply_model 
-    # The ControlLDM class overloads the apply_model() function (hence the loss remains same as stable diffusion)
-
-    # Function Documentation:
-    # apply_model -> calls forward functions of diffusion_model(ControlUnetModel) and control_model(ControlNet)
-
-    # Logging:
-    # The logger callback is called  
-
-if __name__ == '__main__':
+    model, ddim_sampler = create_model_and_sampler(version, use_control=use_control)
+    if(model == None):
+        print("Model not found")
+        return
+    calc_fid(model, ddim_sampler, num_samples=num_samples)
+    
+if __name__ == "__main__":
     main()

@@ -194,7 +194,7 @@ class Custom_Val_Dataset(Dataset):
         return dict(jpg=target, mask=mask, txt=str(prompt[0]))
 
 class Custom_FID_Dataset(Dataset):
-    def __init__(self):
+    def __init__(self, num_samples=1000):
         self.data = []
         # randomly read 50 lines from the file
         with open('../cocoapi/PythonAPI/tp_val.json', 'rt') as f:
@@ -203,9 +203,9 @@ class Custom_FID_Dataset(Dataset):
             # random sample 50 lines
             # lines = random.sample(lines, 50)
 
-            # take first 1000 lines
+            # take first num_samples lines
             lines = np.array(lines)
-            lines = lines[:1000].tolist()
+            lines = lines[:num_samples].tolist()
             for line in lines:
                 self.data.append(json.loads(line))
         
@@ -223,7 +223,8 @@ class Custom_FID_Dataset(Dataset):
         target_filename = item['target']
         mask_filename = item['mask']
         prompts = item['prompts']
-        prompt =np.random.choice(prompts, 1) #, replace=False)
+        # prompt =np.random.choice(prompts, 1) #, replace=False)
+        prompt = [prompts[0]]
         target = cv2.imread('../cocoapi/coco/person_new/images/val2017/' + target_filename)
         mask = cv2.imread('../cocoapi/coco/person_new/mask/val2017/' + mask_filename, cv2.IMREAD_GRAYSCALE)
         # print("hi2", type(target), type(prompt))
