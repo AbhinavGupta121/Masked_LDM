@@ -1,0 +1,5 @@
+todo:
+- fix model checkpoints
+    check if model overwrites checkpoint every k steps (disable fid calculation for this)
+- test sampling from model code
+- test use_control thingy
