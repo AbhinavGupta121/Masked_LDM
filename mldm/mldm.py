@@ -26,7 +26,6 @@ from dataset import Custom_Val_Dataset
 from torch.utils.data import DataLoader
 from cldm.model import load_state_dict
 import matplotlib.pyplot as plt
-from dpmsolver import DPM_Solver
 
 def isfunction(object):
     """Return true if the object is a user-defined function.
