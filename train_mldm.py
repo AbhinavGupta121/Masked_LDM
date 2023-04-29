@@ -9,6 +9,9 @@ from dataset import Custom_Train_Dataset, Custom_Val_Dataset, Custom_FID_Dataset
 from mldm.logger import ImageLogger
 from cldm.model import create_model, load_state_dict
 import numpy as np
+import os
+from pytorch_lightning.callbacks import ModelCheckpoint
+
 # TODO for loss:
 # - Code for 1 step prediction
 # - Mask is also there in the GT now, so multiply the loss by the mask
@@ -18,16 +21,6 @@ import numpy as np
 
 #TODO: @abhinav - Go through train fit. At a DDPM step, get UNET output, call ddim function for calculating pred_x0. 
 # Calculate VGG loss using pred_x0 and GT image masks.
-
-class CustomCheckpointCallback(pl.callbacks.ModelCheckpoint):
-    # save the model every n steps
-    def __init__(self, save_every_n_steps):
-        super().__init__(dirpath='checkpoints', filename='model', save_top_k=1, monitor=None)
-        self.save_every_n_steps = save_every_n_steps
-    
-    def on_batch_end(self, trainer, pl_module):
-        if trainer.global_step % self.save_every_n_steps == 0:
-            super().on_batch_end(trainer, pl_module)
 
 def main():
     # set global seed
@@ -44,11 +37,12 @@ def main():
     learning_rate = 1e-5
     sd_locked = True
     only_mid_control = False
-    calculate_fid = True
+    calculate_fid = False
     save_model_every_n_steps = 10000
     model_loss_type = 'mask'
     ddpm_mask_thresh = 200 # timestep below which mask loss is trained
     mask_weight = 0.9 # loss = (1-mask weight)*sd_loss + mask_weight * mask_loss
+    use_control = True
 
     # First use cpu to load models. Pytorch Lightning will automatically move it to GPUs.
     model = create_model('./models/mldm_v15.yaml').cpu()
@@ -61,11 +55,19 @@ def main():
     model.model_loss_type = model_loss_type
     model.ddpm_mask_thresh = ddpm_mask_thresh
     model.mask_weight = mask_weight
+    model.use_control = use_control
+
+    checkpointer = ModelCheckpoint(
+        save_top_k=1,
+        monitor="global_step",
+        mode="max",
+        every_n_train_steps=save_model_every_n_steps,
+        filename="mldm-{epoch:02d}-{global_step}",
+    )
 
     # Misc
     logger = ImageLogger(batch_frequency=logger_freq, fid_frequency=fid_logger_freq, loss_log_frequency=loss_log_frequency, train_batch_size=batch_size)
-    checkpointer= CustomCheckpointCallback(save_every_n_steps=save_model_every_n_steps)
-    trainer = pl.Trainer(gpus=[0], precision=32, callbacks=[logger, checkpointer])
+    trainer = pl.Trainer(gpus=[1], precision=32, callbacks=[logger, checkpointer])
     # can pass resume_from_checkpoint=resume_path to resume training
 
     train_dataloader = DataLoader(Custom_Train_Dataset(), num_workers=24, batch_size=batch_size, shuffle=True)

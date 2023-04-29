@@ -125,10 +125,11 @@ class MaskControlLDM(ControlLDM):
         assert isinstance(cond, dict)
         diffusion_model = self.model.diffusion_model
         cond_txt = torch.cat(cond['c_crossattn'], 1) # output is tensor of shape (1, 77, 768)
-        control = self.control_model(x=x_noisy, timesteps=t, context=cond_txt) #removed the hint argument
-        control = [c * scale for c, scale in zip(control, self.control_scales)] # list of len 13, each element is control to be applied at different unet layers
-        # for i in range(len(control)):
-            # control[i] = torch.zeros_like(control[i])
+        if self.use_control == True:
+            control = self.control_model(x=x_noisy, timesteps=t, context=cond_txt) #removed the hint argument
+            control = [c * scale for c, scale in zip(control, self.control_scales)] # list of len 13, each element is control to be applied at different unet layers
+        else:
+            control = [torch.tensor([0]).to(x_noisy.device) for i in range(len(self.control_scales))]
         eps = diffusion_model(x=x_noisy, timesteps=t, context=cond_txt, control=control, only_mid_control=self.only_mid_control) # ControlUnet
         return eps
 
@@ -220,6 +221,7 @@ class MaskControlLDM(ControlLDM):
 
     @torch.no_grad()
     def sample_log(self, cond, batch_size, ddim, ddim_steps, **kwargs):
+        # this is the function I need to change. Put dpm solver here (instead of ddim sampler)
         ddim_sampler = DDIMSampler(self)
         shape = self.ddim_shape
         samples, intermediates = ddim_sampler.sample(ddim_steps, batch_size, shape, cond, verbose=False, **kwargs)

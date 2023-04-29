@@ -1,0 +1,6 @@
+todo:
+- fix model checkpoints (DONE)
+    check if model overwrites checkpoint every k steps (disable fid calculation for this)
+- test sampling from model code (DONE)
+- test use_control thingy (Done)
+- FID calculation raw model and trained model

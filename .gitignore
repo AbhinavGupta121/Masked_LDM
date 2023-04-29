@@ -144,3 +144,4 @@ dmypy.json
 .pyre/
 
 try_lpips/**
+FID/**
