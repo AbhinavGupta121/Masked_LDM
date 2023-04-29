@@ -198,9 +198,14 @@ class Custom_FID_Dataset(Dataset):
         self.data = []
         # randomly read 50 lines from the file
         with open('../cocoapi/PythonAPI/tp_val.json', 'rt') as f:
-            # random sample 50 lines
             lines = f.readlines()
-            lines = random.sample(lines, 50)
+            
+            # random sample 50 lines
+            # lines = random.sample(lines, 50)
+
+            # take first 1000 lines
+            lines = np.array(lines)
+            lines = lines[:1000].tolist()
             for line in lines:
                 self.data.append(json.loads(line))
         

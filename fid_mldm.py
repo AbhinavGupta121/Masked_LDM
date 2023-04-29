@@ -73,7 +73,7 @@ def main():
     train_dataloader = DataLoader(Custom_Train_Dataset(), num_workers=24, batch_size=batch_size, shuffle=True)
     train_dataloader_log = DataLoader(Custom_Train_Dataset(), num_workers=24, batch_size=batch_size, shuffle=True)
     val_dataloader_log = DataLoader(Custom_Val_Dataset(), num_workers=24, batch_size=batch_size, shuffle=True)
-    val_dataloader_fid = DataLoader(Custom_FID_Dataset(), num_workers=24, batch_size=batch_size, shuffle=True)
+    val_dataloader_fid = DataLoader(Custom_FID_Dataset(), num_workers=24, batch_size=batch_size, shuffle=False)
     model.store_dataloaders(train_dataloader_log, val_dataloader_log, val_dataloader_fid)
 
     # Train!

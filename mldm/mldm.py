@@ -129,7 +129,7 @@ class MaskControlLDM(ControlLDM):
             control = self.control_model(x=x_noisy, timesteps=t, context=cond_txt) #removed the hint argument
             control = [c * scale for c, scale in zip(control, self.control_scales)] # list of len 13, each element is control to be applied at different unet layers
         else:
-            control = [torch.tensor[0] for i in range(len(self.control_scales))]
+            control = [torch.tensor([0]).to(x_noisy.device) for i in range(len(self.control_scales))]
         eps = diffusion_model(x=x_noisy, timesteps=t, context=cond_txt, control=control, only_mid_control=self.only_mid_control) # ControlUnet
         return eps
 
