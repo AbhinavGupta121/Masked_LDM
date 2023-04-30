@@ -19,8 +19,8 @@ from cleanfid import fid
 
 # global config
 gpu_id = 1
-batch_size = 8
-num_samples = 1000
+fid_batch_size = 8
+fid_num_samples = 1000
 model_identifier = "stable_diffusion"
 use_control= False
 version = None
@@ -73,9 +73,9 @@ def model_sample(prompt, n_prompt, model, num_samples, ddim_sampler, ddim_steps,
 def model_sample_batch(batch, model, sampler, sampler_config):
     log = dict()
     num_samples = batch['jpg'].shape[0]
-    z, c = model.get_input(batch, model.first_stage_key, bs=batch_size)
-    c = c["c_crossattn"][0][:batch_size]
-    uc_cross = model.get_unconditional_conditioning(batch_size)
+    z, c = model.get_input(batch, model.first_stage_key, bs=fid_batch_size)
+    c = c["c_crossattn"][0][:fid_batch_size]
+    uc_cross = model.get_unconditional_conditioning(fid_batch_size)
     uc_full = {"c_crossattn": [uc_cross]}
     cond={"c_crossattn": [c]}
 
@@ -109,7 +109,7 @@ def calc_fid(model, sampler, strength=1, num_samples=1000):
     # make directory if it doesn't exist
     if not os.path.exists(gen_path_batch):
         os.makedirs(gen_path_batch)
-    custom_dataloader = DataLoader(Custom_FID_Dataset(num_samples), num_workers=24, batch_size=batch_size, shuffle=False)
+    custom_dataloader = DataLoader(Custom_FID_Dataset(num_samples), num_workers=24, batch_size=fid_batch_size, shuffle=False)
     model.control_scales = [strength] * 13 
     model.eval()
     count = -1
@@ -137,7 +137,7 @@ def main():
     if(model == None):
         print("Model not found")
         return
-    calc_fid(model, ddim_sampler, num_samples=num_samples)
+    calc_fid(model, ddim_sampler, num_samples=fid_num_samples)
     
 if __name__ == "__main__":
     main()

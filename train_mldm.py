@@ -30,19 +30,27 @@ def main():
 
     # Configs
     resume_path = './models/control_sd15_openpose.pth' #start from openpose pretrained model
-    batch_size = 1
+    
+    # Training Params
+    batch_size = 2
+    model_loss_type = 'mask'
+    mask_weight = 0.5 # loss = (1-mask weight)*sd_loss + mask_weight * mask_loss
+    ddpm_mask_thresh = 400 # timestep below which mask loss is trained
+    use_control = True
+
+    # Logging Params
     logger_freq = 300 # log images frequency
-    fid_logger_freq = 30000 # log fid frequency
-    loss_log_frequency = 300 # log loss frequency
+    loss_log_frequency = 2 # log loss frequency
+    fid_logger_epoch_freq = 2 # log fid after how many epochs, can be fractional
+    fid_batch_size = 4
+    fid_num_samples = 8
+    calculate_fid = False
+    save_model_every_n_steps = 10000
+    
+    # Fixed params for our experiments
     learning_rate = 1e-5
     sd_locked = True
     only_mid_control = False
-    calculate_fid = False
-    save_model_every_n_steps = 10000
-    model_loss_type = 'mask'
-    ddpm_mask_thresh = 200 # timestep below which mask loss is trained
-    mask_weight = 0.9 # loss = (1-mask weight)*sd_loss + mask_weight * mask_loss
-    use_control = True
 
     # First use cpu to load models. Pytorch Lightning will automatically move it to GPUs.
     model = create_model('./models/mldm_v15.yaml').cpu()
@@ -65,15 +73,17 @@ def main():
         filename="mldm-{epoch:02d}-{global_step}",
     )
 
-    # Misc
-    logger = ImageLogger(batch_frequency=logger_freq, fid_frequency=fid_logger_freq, loss_log_frequency=loss_log_frequency, train_batch_size=batch_size)
-    trainer = pl.Trainer(gpus=[1], precision=32, callbacks=[logger, checkpointer])
-    # can pass resume_from_checkpoint=resume_path to resume training
-
     train_dataloader = DataLoader(Custom_Train_Dataset(), num_workers=24, batch_size=batch_size, shuffle=True)
     train_dataloader_log = DataLoader(Custom_Train_Dataset(), num_workers=24, batch_size=batch_size, shuffle=True)
     val_dataloader_log = DataLoader(Custom_Val_Dataset(), num_workers=24, batch_size=batch_size, shuffle=True)
-    val_dataloader_fid = DataLoader(Custom_FID_Dataset(), num_workers=24, batch_size=batch_size, shuffle=True)
+    val_dataloader_fid = DataLoader(Custom_FID_Dataset(fid_num_samples), num_workers=24, batch_size=fid_batch_size, shuffle=False)
+
+    fid_logger_freq = len(train_dataloader)*fid_logger_epoch_freq # log fid frequency
+    logger = ImageLogger(batch_frequency=logger_freq, fid_frequency=fid_logger_freq, 
+                         loss_log_frequency=loss_log_frequency, train_batch_size=batch_size)
+    trainer = pl.Trainer(gpus=[0], precision=32, callbacks=[logger, checkpointer])
+    # can pass resume_from_checkpoint=resume_path to resume training
+
     model.store_dataloaders(train_dataloader_log, val_dataloader_log, val_dataloader_fid)
 
     # Train!

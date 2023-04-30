@@ -104,7 +104,20 @@ class ImageLogger(Callback):
         root = os.path.join(save_dir, "image_log", "version" + str(version) , split, "loss")
         # print sizes of tensors
         log_dict["mask_gt"] = torch.tile(log_dict["mask_gt"], (1,3,1,1))
-        super_img = torch.cat( (log_dict["x_noisy"], log_dict["x_0_pred"] , log_dict["train_gt"] , log_dict["mask_gt"]), dim=0)
+        super_img = None
+        for i in range(log_dict["mask_gt"].shape[0]):
+            # keep log_dict["x_noisy"][0, :, :, :] of shape 1,3,256,256
+            
+            # super_img = torch.cat( (log_dict["x_noisy"], log_dict["x_0_pred"] , log_dict["train_gt"] , log_dict["mask_gt"]), dim=0)
+            super_img_i = torch.cat( (log_dict["x_noisy"][i:i+1, :, :, :], 
+                                      log_dict["x_0_pred"][i:i+1, :, :, :] , 
+                                      log_dict["train_gt"][i:i+1, :, :, :] , 
+                                      log_dict["mask_gt"][i:i+1, :, :, :]), dim=0) 
+            if super_img == None:
+                super_img = super_img_i
+            else:
+                super_img = torch.cat( (super_img, super_img_i), dim=0)
+
         grid = torchvision.utils.make_grid(super_img, nrow=4, pad_value=1)
         if self.rescale:
             grid = (grid + 1.0) / 2.0  # [-1,1] -> 0,1; c,h,w
@@ -191,8 +204,7 @@ class ImageLogger(Callback):
         """
         if(pl_module.calculate_fid==False):
             return
-        if ( pl_module.global_step % self.fid_frequency == 0): # log every fid_frequency batches
-
+        if((pl_module.global_step % self.fid_frequency == 0) and (pl_module.global_step!=0)): # log every fid_frequency batches
             print("---------------Calculating FID---------------") 
             gen_path_batch = os.path.join(self.gen_path, "version" + str(pl_module.logger.version), "fid_val", "step"+str(pl_module.global_step))
             custom_dataloader  = pl_module.val_dataloader_fid

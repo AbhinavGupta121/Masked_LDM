@@ -12,6 +12,7 @@ from ldm.modules.diffusionmodules.util import (
     zero_module,
     timestep_embedding,
 )
+from loss import Masked_LPIPS_Loss
 
 from einops import rearrange, repeat
 from torchvision.utils import make_grid
@@ -79,6 +80,7 @@ class MaskControlNet(ControlNet):
         # remove the self.input_hint_block
         super().__init__(image_size, in_channels, model_channels, hint_channels, num_res_blocks, attention_resolutions, dropout, channel_mult, conv_resample, dims, use_checkpoint, use_fp16, num_heads, num_head_channels, num_heads_upsample, use_scale_shift_norm, resblock_updown, use_new_attention_order, use_spatial_transformer, transformer_depth, context_dim, n_embed, legacy, disable_self_attentions, num_attention_blocks, disable_middle_self_attn, use_linear_in_transformer)
 
+
     def del_input_hint_block(self):
         del self.input_hint_block
 
@@ -103,6 +105,7 @@ class MaskControlLDM(ControlLDM):
         # call the grandparent class constructor
         # removed the control_key argument (as no control key is needed for this model)
         super().__init__(control_stage_config, control_key, only_mid_control, *args, **kwargs)
+
         del self.control_key
     
     def store_dataloaders(self, train_dataloader, val_dataloader, val_dataloader_fid):
@@ -196,13 +199,16 @@ class MaskControlLDM(ControlLDM):
             N = min(z.shape[0], N)
             uc_cross = self.get_unconditional_conditioning(N) # null text conditioning
             uc_full = {"c_crossattn": [uc_cross]}
-            t = torch.randint(0, self.ddpm_mask_thresh, (z.shape[0],), device=self.device).long()
+            # t = torch.randint(0, self.ddpm_mask_thresh, (z.shape[0],), device=self.device).long()
+            # same time for all samples in batch
+            t_sample = torch.randint(0, self.ddpm_mask_thresh, (1,), device=self.device).long()
+            t = t_sample.repeat(z.shape[0])
             new_batch['mask'] = new_batch['mask'].to(self.device)
             new_batch['jpg'] = new_batch['jpg'].to(self.device)
-            _, loss_dict, x_0_pred= self.mask_aware_loss(z, cond={"c_crossattn": [c]}, t=t, mask = new_batch['mask'], x0_gt=new_batch['jpg'])
-            x_noisy = self.decode_first_stage(z)
+            _, loss_dict, x_0_pred, z_noisy= self.mask_aware_loss(z, cond={"c_crossattn": [c]}, t=t, mask = new_batch['mask'], x0_gt=new_batch['jpg'])
+            x_noisy = self.decode_first_stage(z_noisy)
             # print(new_batch['jpg'].permute(0, 3, 1, 2))
-            return x_noisy, loss_dict, t, x_0_pred, new_batch['jpg'].permute(0, 3, 1, 2), new_batch['mask'].permute(0, 3, 1, 2) 
+            return x_noisy, loss_dict, t[0], x_0_pred, new_batch['jpg'].permute(0, 3, 1, 2), new_batch['mask'].permute(0, 3, 1, 2) 
         
         print("---------------Logging Train Loss Samples---------------")
         prefix = 'train' if self.training else 'val'
@@ -241,7 +247,7 @@ class MaskControlLDM(ControlLDM):
         log = dict()
         z, c = self.get_input(batch, self.first_stage_key, bs=N)
         c = c["c_crossattn"][0][:N]
-        N = min(z.shape[0], N)
+        N = z.shape[0]
         # get samples using unconditional guidance
         uc_cross = self.get_unconditional_conditioning(N)
         uc_full = {"c_crossattn": [uc_cross]}
@@ -294,7 +300,11 @@ class MaskControlLDM(ControlLDM):
         
     def forward(self, x, c, x0_gt = None, mask = None, *args, **kwargs):
         """Forward pass of the model. Both MSE or mask-aware loss can be used."""
-        t = torch.randint(0,self.num_timesteps, (x.shape[0],), device=self.device).long()
+        # sample a timestep between 0 and self.num_timesteps
+        t_sample = torch.randint(0,self.num_timesteps, (1,), device=self.device).long()
+        # tile it to x.shape[0]
+        t = t_sample.repeat(x.shape[0])
+        # t = torch.randint(0,self.num_timesteps, (x.shape[0],), device=self.device).long()
         if self.model.conditioning_key is not None:
             assert c is not None
             if self.cond_stage_trainable:
@@ -309,7 +319,7 @@ class MaskControlLDM(ControlLDM):
             assert mask is not None
             assert x0_gt is not None
             # self.inference_samples(x, c, t,*args, **kwargs)
-            loss, loss_dict, _ = self.mask_aware_loss(x, c, t, mask, x0_gt= x0_gt)
+            loss, loss_dict, _, _ = self.mask_aware_loss(x, c, t, mask, x0_gt= x0_gt)
             return loss, loss_dict
 
     def get_x0(self, xt, t, cond, noise):
@@ -360,8 +370,8 @@ class MaskControlLDM(ControlLDM):
         loss_dict.update({f'{prefix}/loss_sd': loss})
 
         # Mask Aware Loss
-        if(t > self.ddpm_mask_thresh):
-            loss_dict.update({f'{prefix}/loss_mask': 0})
+        if(t[0] > self.ddpm_mask_thresh): # as ts samples for batch are same
+            loss_dict.update({f'{prefix}/loss_mask': torch.tensor([0]).to(x0_gt.device) })
             x0_pred_img = torch.zeros_like(x0_gt)
         else:
             loss_fn = lpips.LPIPS(net='vgg',verbose=False).to(x0_gt.device)
@@ -372,21 +382,84 @@ class MaskControlLDM(ControlLDM):
             # clip x_pred_img to[-1, 1]
             x0_pred_img = torch.clamp(x0_pred_img, -1, 1)
             # print devices
-            # print(x0_pred_img.device, x0_gt.device, mask.device)
             # print(x0_pred_img.shape, x0_gt.shape, mask.shape)
-            # print max and min values of mask, gt and pred
-            # print("MAX MIN of pred", torch.max(x0_pred_img), torch.min(x0_pred_img), x0_pred_img.shape)
-            # print("MAX MIN of gt", torch.max(x0_gt), torch.min(x0_gt), x0_gt.shape)
-            # print("MAX MIN of mask", torch.max(mask), torch.min(mask), mask.shape)
             # check if all elemts of mask are 0 or 1
             # print("unique values of mask", torch.unique(mask))
+            loss_test = loss_fn.forward(x0_pred_img, x0_gt)
             loss_mask = loss_fn.forward(x0_pred_img*mask, x0_gt*mask).mean()*(x0_gt.shape[2]*x0_gt.shape[3]/torch.sum(mask))
+            # print("loss_test shape", loss_test.shape)
             loss_dict.update({f'{prefix}/loss_mask': loss_mask})
             # loss = loss_mask
             loss = (1-self.mask_weight)*loss + self.mask_weight * loss_mask
         
         loss_dict.update({f'{prefix}/loss': loss})
-        return loss, loss_dict, x0_pred_img
+        return loss, loss_dict, x0_pred_img, x_noisy
+
+    def masked_lpips_loss(self, x_start, cond, t, mask, x0_gt, noise=None):
+        """
+        Calculate the Mask Aware Loss
+        """
+        #x_start is the latent vector of GT image. It'll be noised in subsequent foraward diffusion process by qsample
+        noise = default(noise, lambda: torch.randn_like(x_start))
+        x_noisy = self.q_sample(x_start=x_start, t=t, noise=noise)
+        loss_dict = {}
+        prefix = 'train' if self.training else 'val'
+
+        # Calculate the Normal Stable Diffusion loss
+        model_output = self.apply_model(x_noisy, t, cond) # apply_model has been overloaded in cldm.
+
+        #Target depends on the parameterization uses. Either predict eps directly or x0, or v.
+        if self.parameterization == "x0":
+            target = x_start
+        elif self.parameterization == "eps":
+            target = noise
+        elif self.parameterization == "v":
+            target = self.get_v(x_start, noise, t)
+        else:
+            raise NotImplementedError()
+
+        loss_simple = self.get_loss(model_output, target, mean=False).mean([1, 2, 3])
+        loss_dict.update({f'{prefix}/loss_simple': loss_simple.mean()})
+
+        logvar_t = self.logvar[t].to(self.device)
+        loss = loss_simple / torch.exp(logvar_t) + logvar_t
+        # loss = loss_simple / torch.exp(self.logvar) + self.logvar
+        if self.learn_logvar:
+            loss_dict.update({f'{prefix}/loss_gamma': loss.mean()})
+            loss_dict.update({'logvar': self.logvar.data.mean()})
+
+        loss = self.l_simple_weight * loss.mean()
+
+        loss_vlb = self.get_loss(model_output, target, mean=False).mean(dim=(1, 2, 3))
+        loss_vlb = (self.lvlb_weights[t] * loss_vlb).mean()
+        loss_dict.update({f'{prefix}/loss_vlb': loss_vlb})
+        loss += (self.original_elbo_weight * loss_vlb)
+        loss_dict.update({f'{prefix}/loss_sd': loss})
+
+        # Mask Aware Loss
+        if(t[0] > self.ddpm_mask_thresh): # as ts samples for batch are same
+            loss_dict.update({f'{prefix}/loss_mask': torch.tensor([0]).to(x0_gt.device) })
+            x0_pred_img = torch.zeros_like(x0_gt)
+        else:
+            #initialize masked lpips loss
+            self.loss_masked_lpips = Masked_LPIPS_Loss(net='vgg', device=x0_gt.device)
+            # loss_fn = lpips.LPIPS(net='vgg',verbose=False).to(x0_gt.device)
+            x0_pred = self.get_x0(x_noisy, t, cond, model_output)
+            x0_pred_img = self.decode_first_stage(x0_pred)
+            x0_gt = x0_gt.permute(0, 3, 1, 2)
+            mask = mask.permute(0, 3, 1, 2)
+            # clip x_pred_img to[-1, 1]
+            x0_pred_img = torch.clamp(x0_pred_img, -1, 1)
+
+            # loss_mask = loss_fn.forward(x0_pred_img*mask, x0_gt*mask).mean()*(x0_gt.shape[2]*x0_gt.shape[3]/torch.sum(mask))
+
+            loss_mask = self.loss_masked_lpips(x0_pred_img, x0_gt, mask)
+            loss_dict.update({f'{prefix}/loss_mask': loss_mask})
+            # loss = loss_mask
+            loss = (1-self.mask_weight)*loss + self.mask_weight * loss_mask
+        
+        loss_dict.update({f'{prefix}/loss': loss})
+        return loss, loss_dict, x0_pred_img, x_noisy
 
     def shared_step(self, batch, **kwargs):
         x, c = self.get_input(batch, self.first_stage_key)

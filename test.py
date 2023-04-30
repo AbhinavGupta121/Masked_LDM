@@ -79,7 +79,9 @@ import cv2
 # cv2.imwrite('original.png', img)
 # # cv2.imwrite('resized.png', resized_img)
 
-# dataset = Custom_Train_Dataset()
+dataset = Custom_Train_Dataset()
+print(len(dataset))
+exit()
 dataset = Custom_Val_Dataset()
 # dataset = Custom_FID_Dataset()
 dataloader = DataLoader(dataset, batch_size=1, shuffle=False, num_workers=24)
