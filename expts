@@ -28,6 +28,16 @@ updated mask loss = mask_loss*512*512/num_px_mask,
 mask_weight = 0.9, 
 ddpm_mask_thresh = 200,
 
+276:
+lambda1 = 0.3
+lambda2 = 0.5
+T = 400
+
+278:
+lambda1 = 0.2
+lambda2 = 0.3
+T = 400
+
 
 
 

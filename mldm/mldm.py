@@ -12,8 +12,8 @@ from ldm.modules.diffusionmodules.util import (
     zero_module,
     timestep_embedding,
 )
-from loss import Masked_LPIPS_Loss
-
+from mldm.lpips_loss import Masked_LPIPS_Loss
+from mldm.face_loss import FaceLoss
 from einops import rearrange, repeat
 from torchvision.utils import make_grid
 from ldm.util import log_txt_as_img, exists, instantiate_from_config
@@ -105,8 +105,9 @@ class MaskControlLDM(ControlLDM):
         # call the grandparent class constructor
         # removed the control_key argument (as no control key is needed for this model)
         super().__init__(control_stage_config, control_key, only_mid_control, *args, **kwargs)
-
+        self.face_model_path = "/home/phebbar/Documents/ControlNet/models/resnet50_ft_weight.pkl"
         del self.control_key
+        self.loss_init_flag = False
     
     def store_dataloaders(self, train_dataloader, val_dataloader, val_dataloader_fid):
         self.train_dataloader_log = train_dataloader
@@ -205,23 +206,26 @@ class MaskControlLDM(ControlLDM):
             t = t_sample.repeat(z.shape[0])
             new_batch['mask'] = new_batch['mask'].to(self.device)
             new_batch['jpg'] = new_batch['jpg'].to(self.device)
-            _, loss_dict, x_0_pred, z_noisy= self.mask_aware_loss(z, cond={"c_crossattn": [c]}, t=t, mask = new_batch['mask'], x0_gt=new_batch['jpg'])
+            new_batch['face_boxes'] = new_batch['face_boxes'].to(self.device)
+            _, loss_dict, x_0_pred, z_noisy= self.mask_aware_loss(z, cond={"c_crossattn": [c]}, t=t, mask = new_batch['mask'], x0_gt=new_batch['jpg'], face_boxes=new_batch['face_boxes'])
             x_noisy = self.decode_first_stage(z_noisy)
             # print(new_batch['jpg'].permute(0, 3, 1, 2))
-            return x_noisy, loss_dict, t[0], x_0_pred, new_batch['jpg'].permute(0, 3, 1, 2), new_batch['mask'].permute(0, 3, 1, 2) 
+            return x_noisy, loss_dict, t[0], x_0_pred, new_batch['jpg'].permute(0, 3, 1, 2), new_batch['mask'].permute(0, 3, 1, 2), new_batch["face_boxes"]
         
         print("---------------Logging Train Loss Samples---------------")
         prefix = 'train' if self.training else 'val'
         train_batch_sample = next(iter(self.train_dataloader_log))
-        x_noisy, loss_dict, timestep, x_0_pred, train_gt, mask_gt = get_loss(train_batch_sample, N)
+        x_noisy, loss_dict, timestep, x_0_pred, train_gt, mask_gt, face_box = get_loss(train_batch_sample, N)
         log['x_noisy'] = x_noisy.to('cpu')
         log["x_text"] = train_batch_sample[self.cond_stage_key]    
         log['loss_sd'] = loss_dict[f'{prefix}/loss_sd'].to('cpu')
-        log['loss_mask'] = loss_dict[f'{prefix}/loss_mask'].to('cpu')
+        log['loss_lpips'] = loss_dict[f'{prefix}/loss_lpips'].to('cpu')
+        log['loss_face'] = loss_dict[f'{prefix}/loss_face'].to('cpu')
         log['timestep'] = timestep.to('cpu')
         log['x_0_pred'] = x_0_pred.to('cpu')
         log['train_gt'] = train_gt.to('cpu')
         log['mask_gt'] = mask_gt.to('cpu')
+        log['face_box'] = face_box
         # print all items in log
         return log
 
@@ -298,7 +302,7 @@ class MaskControlLDM(ControlLDM):
         self.cond_stage_model.load_state_dict(dict_cond_stage, strict=True)
         self.first_stage_model.load_state_dict(dict_first_stage, strict=True)
         
-    def forward(self, x, c, x0_gt = None, mask = None, *args, **kwargs):
+    def forward(self, x, c, x0_gt = None, mask = None, face_boxes = None, *args, **kwargs):
         """Forward pass of the model. Both MSE or mask-aware loss can be used."""
         # sample a timestep between 0 and self.num_timesteps
         t_sample = torch.randint(0,self.num_timesteps, (1,), device=self.device).long()
@@ -318,8 +322,9 @@ class MaskControlLDM(ControlLDM):
         elif(self.model_loss_type =='mask'): #mask-aware loss
             assert mask is not None
             assert x0_gt is not None
+            assert face_boxes is not None
             # self.inference_samples(x, c, t,*args, **kwargs)
-            loss, loss_dict, _, _ = self.mask_aware_loss(x, c, t, mask, x0_gt= x0_gt)
+            loss, loss_dict, _, _ = self.mask_aware_loss(x, c, t, mask, face_boxes, x0_gt= x0_gt)
             return loss, loss_dict
 
     def get_x0(self, xt, t, cond, noise):
@@ -328,7 +333,7 @@ class MaskControlLDM(ControlLDM):
                 extract_into_tensor(self.sqrt_recipm1_alphas_cumprod, t, xt.shape) * noise
         )
 
-    def mask_aware_loss(self, x_start, cond, t, mask, x0_gt, noise=None):
+    def mask_aware_loss(self, x_start, cond, t, mask, face_boxes, x0_gt, noise=None):
         """
         Calculate the Mask Aware Loss
         """
@@ -371,99 +376,43 @@ class MaskControlLDM(ControlLDM):
 
         # Mask Aware Loss
         if(t[0] > self.ddpm_mask_thresh): # as ts samples for batch are same
-            loss_dict.update({f'{prefix}/loss_mask': torch.tensor([0]).to(x0_gt.device) })
+            loss_dict.update({f'{prefix}/lpips_loss': torch.tensor([0]).to(x0_gt.device) })
             x0_pred_img = torch.zeros_like(x0_gt)
         else:
-            loss_fn = lpips.LPIPS(net='vgg',verbose=False).to(x0_gt.device)
+            if(self.loss_init_flag ==False):
+                self.lpips_lossfn = Masked_LPIPS_Loss(net='vgg', device=x_start.device)
+                self.face_loss = FaceLoss(self.face_model_path, device=x_start.device)
+                self.loss_init_flag = True
+
             x0_pred = self.get_x0(x_noisy, t, cond, model_output)
             x0_pred_img = self.decode_first_stage(x0_pred)
             x0_gt = x0_gt.permute(0, 3, 1, 2)
             mask = mask.permute(0, 3, 1, 2)
-            # clip x_pred_img to[-1, 1]
-            x0_pred_img = torch.clamp(x0_pred_img, -1, 1)
-            # print devices
-            # print(x0_pred_img.shape, x0_gt.shape, mask.shape)
-            # check if all elemts of mask are 0 or 1
-            # print("unique values of mask", torch.unique(mask))
-            loss_test = loss_fn.forward(x0_pred_img, x0_gt)
-            loss_mask = loss_fn.forward(x0_pred_img*mask, x0_gt*mask).mean()*(x0_gt.shape[2]*x0_gt.shape[3]/torch.sum(mask))
-            # print("loss_test shape", loss_test.shape)
-            loss_dict.update({f'{prefix}/loss_mask': loss_mask})
-            # loss = loss_mask
-            loss = (1-self.mask_weight)*loss + self.mask_weight * loss_mask
-        
-        loss_dict.update({f'{prefix}/loss': loss})
-        return loss, loss_dict, x0_pred_img, x_noisy
-
-    def masked_lpips_loss(self, x_start, cond, t, mask, x0_gt, noise=None):
-        """
-        Calculate the Mask Aware Loss
-        """
-        #x_start is the latent vector of GT image. It'll be noised in subsequent foraward diffusion process by qsample
-        noise = default(noise, lambda: torch.randn_like(x_start))
-        x_noisy = self.q_sample(x_start=x_start, t=t, noise=noise)
-        loss_dict = {}
-        prefix = 'train' if self.training else 'val'
-
-        # Calculate the Normal Stable Diffusion loss
-        model_output = self.apply_model(x_noisy, t, cond) # apply_model has been overloaded in cldm.
-
-        #Target depends on the parameterization uses. Either predict eps directly or x0, or v.
-        if self.parameterization == "x0":
-            target = x_start
-        elif self.parameterization == "eps":
-            target = noise
-        elif self.parameterization == "v":
-            target = self.get_v(x_start, noise, t)
-        else:
-            raise NotImplementedError()
-
-        loss_simple = self.get_loss(model_output, target, mean=False).mean([1, 2, 3])
-        loss_dict.update({f'{prefix}/loss_simple': loss_simple.mean()})
-
-        logvar_t = self.logvar[t].to(self.device)
-        loss = loss_simple / torch.exp(logvar_t) + logvar_t
-        # loss = loss_simple / torch.exp(self.logvar) + self.logvar
-        if self.learn_logvar:
-            loss_dict.update({f'{prefix}/loss_gamma': loss.mean()})
-            loss_dict.update({'logvar': self.logvar.data.mean()})
-
-        loss = self.l_simple_weight * loss.mean()
-
-        loss_vlb = self.get_loss(model_output, target, mean=False).mean(dim=(1, 2, 3))
-        loss_vlb = (self.lvlb_weights[t] * loss_vlb).mean()
-        loss_dict.update({f'{prefix}/loss_vlb': loss_vlb})
-        loss += (self.original_elbo_weight * loss_vlb)
-        loss_dict.update({f'{prefix}/loss_sd': loss})
-
-        # Mask Aware Loss
-        if(t[0] > self.ddpm_mask_thresh): # as ts samples for batch are same
-            loss_dict.update({f'{prefix}/loss_mask': torch.tensor([0]).to(x0_gt.device) })
-            x0_pred_img = torch.zeros_like(x0_gt)
-        else:
-            #initialize masked lpips loss
-            self.loss_masked_lpips = Masked_LPIPS_Loss(net='vgg', device=x0_gt.device)
-            # loss_fn = lpips.LPIPS(net='vgg',verbose=False).to(x0_gt.device)
-            x0_pred = self.get_x0(x_noisy, t, cond, model_output)
-            x0_pred_img = self.decode_first_stage(x0_pred)
-            x0_gt = x0_gt.permute(0, 3, 1, 2)
-            mask = mask.permute(0, 3, 1, 2)
-            # clip x_pred_img to[-1, 1]
             x0_pred_img = torch.clamp(x0_pred_img, -1, 1)
 
-            # loss_mask = loss_fn.forward(x0_pred_img*mask, x0_gt*mask).mean()*(x0_gt.shape[2]*x0_gt.shape[3]/torch.sum(mask))
+            lpips_loss = self.lpips_lossfn(x0_pred_img, x0_gt, mask).mean()
+            loss_dict.update({f'{prefix}/loss_lpips': lpips_loss})
+            
+            # Face loss
+            assert face_boxes.shape[0] == x0_gt.shape[0] and face_boxes.shape[2] == 4
+            lambda3 = 1 -self.lambda1 - self.lambda2
+            if face_boxes.shape[1]==1 and torch.sum(face_boxes, axis=2)==0:
+                face_loss = torch.tensor([0]).to(self.device)
+                lambda3 = lambda3/(self.lambda1+lambda3)
+                lambda1 = self.lambda1/(self.lambda1+lambda3)
+                loss = lambda3*loss + lambda1 * lpips_loss 
+            else:
+                face_loss = self.face_loss(x0_gt,x0_pred_img,face_boxes)
+                loss = lambda3*loss + self.lambda1 * lpips_loss + self.lambda2 * face_loss
 
-            loss_mask = self.loss_masked_lpips(x0_pred_img, x0_gt, mask)
-            loss_dict.update({f'{prefix}/loss_mask': loss_mask})
-            # loss = loss_mask
-            loss = (1-self.mask_weight)*loss + self.mask_weight * loss_mask
+            loss_dict.update({f'{prefix}/loss_face': face_loss})
         
         loss_dict.update({f'{prefix}/loss': loss})
         return loss, loss_dict, x0_pred_img, x_noisy
 
     def shared_step(self, batch, **kwargs):
         x, c = self.get_input(batch, self.first_stage_key)
-        loss = self(x, c, x0_gt = batch["jpg"], mask = batch["mask"])
+        loss = self(x, c, x0_gt = batch["jpg"], mask = batch["mask"], face_boxes = batch["face_boxes"])
         return loss
 
     def training_step(self, batch, batch_idx):
@@ -556,4 +505,5 @@ class MaskControlLDM(ControlLDM):
     #     plt.imsave(os.path.join(folder, filename2),out1)
     #     plt.imsave(os.path.join(folder, filename3),out2)
 
-    
+
+

@@ -9,6 +9,7 @@ test_outputs/
 *.pt
 *.ckpt
 *.safetensors
+*.pkl
 
 gradio_pose2image_private.py
 gradio_canny2image_private.py

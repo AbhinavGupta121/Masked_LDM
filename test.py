@@ -4,6 +4,13 @@ import os
 import numpy as np
 import matplotlib.pyplot as plt
 import cv2
+import warnings
+warnings.filterwarnings("ignore")
+import torch
+
+# seed everything
+np.random.seed(42)
+torch.manual_seed(42)
 
 # def custom_resize(img, mask):
 #     # img shape is (height, width, channels)
@@ -80,18 +87,26 @@ import cv2
 # # cv2.imwrite('resized.png', resized_img)
 
 dataset = Custom_Train_Dataset()
-print(len(dataset))
-exit()
-dataset = Custom_Val_Dataset()
+# dataset = Custom_Val_Dataset()
 # dataset = Custom_FID_Dataset()
-dataloader = DataLoader(dataset, batch_size=1, shuffle=False, num_workers=24)
+dataloader = DataLoader(dataset, batch_size=1, shuffle=False, num_workers=1)
 for batchid, batch in enumerate(dataloader):
-    si = batch["jpg"].shape
-    sm = batch["mask"].shape
-    # if(si[1]%64 != 0 or si[2]%64 != 0 or sm[1]%64 != 0 or sm[2]%64 != 0):
-    #     print("error", si, sm)
+    img = batch["jpg"][0].numpy()
+    # print(img.shape)
+    face_box = batch["face_boxes"]
+    print(face_box.shape)
+    # if(face_box.shape[2]!=4):
+    #     print("face box shape is not 4")
     #     break
-    # if(si[1]!= 512 or si[2]!= 512 or sm[1] != 512 or sm[2]!=512):
-        # print("error", si, sm)
-        # break
-    print(batch["jpg"].shape, batch["mask"].shape)
+    # print(batchid, face_box.shape)
+    # print(face_box.shape)
+    # face_box = face_box[0].numpy()
+    # face_box = np.array([[10, 30, 40, 70]])
+    # show face boxes on image
+    # if(batchid == 40):
+    #     for i in range(face_box.shape[0]):
+    #         cv2.rectangle(img, (face_box[i, 0], face_box[i, 1]), (face_box[i, 2], face_box[i, 3]), (0, 255, 0), 2)
+    #     # show image
+    #     cv2.imshow("img", img)
+    #     cv2.waitKey(0)
+    # print(batch["jpg"].shape, batch["mask"].shape)

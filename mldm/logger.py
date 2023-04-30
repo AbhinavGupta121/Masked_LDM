@@ -9,7 +9,6 @@ from pytorch_lightning.utilities.distributed import rank_zero_only
 from cleanfid import fid
 from PIL import Image, ImageDraw, ImageFont
 
-
 class ImageLogger(Callback):
     def __init__(self, batch_frequency=2000, max_images=4, clamp=True, increase_log_steps=True,
                  rescale=True, disabled=False, log_on_batch_idx=False, log_first_step=False,
@@ -96,6 +95,21 @@ class ImageLogger(Callback):
     
     @rank_zero_only 
     def log_local_loss(self, save_dir, split, log_dict, global_step, current_epoch, batch_idx, version):
+        def draw_rect(img, x1, y1, x2, y2, c=200):
+            _, _, h, w = img.shape
+            min_x1 = max(0, x1 - 1)
+            max_x1 = min(w, x1 + 1)
+            min_x2 = max(0, x2 - 1)
+            max_x2 = min(w, x2 + 1)
+            min_y1 = max(0, y1 - 1)
+            max_y1 = min(h, y1 + 1)
+            min_y2 = max(0, y2 - 1)
+            max_y2 = min(h, y2 + 1)
+            img[:, :, y1:y2, min_x1:max_x1] = c
+            img[:, :, y1:y2, min_x2:max_x2] = c
+            img[:, :, min_y1:max_y1, x1:x2] = c
+            img[:, :, min_y2:max_y2, x1:x2] = c
+            return img
         """
         Decorator used to run this method only on the main process (with rank 0)
         Makes a grid of images and saves it to disk
@@ -106,19 +120,30 @@ class ImageLogger(Callback):
         log_dict["mask_gt"] = torch.tile(log_dict["mask_gt"], (1,3,1,1))
         super_img = None
         for i in range(log_dict["mask_gt"].shape[0]):
-            # keep log_dict["x_noisy"][0, :, :, :] of shape 1,3,256,256
-            
-            # super_img = torch.cat( (log_dict["x_noisy"], log_dict["x_0_pred"] , log_dict["train_gt"] , log_dict["mask_gt"]), dim=0)
+            face_img = log_dict["train_gt"][i:i+1, :, :, :].numpy().copy()
+            face_img = ((((face_img+1)/2))*255).astype(np.uint8)
+            # draw face boxes on image
+            for j in range(log_dict["face_box"][i].shape[0]):
+                face_img = draw_rect(face_img, log_dict["face_box"][i][j, 0], 
+                                     log_dict["face_box"][i][j, 1], 
+                                     log_dict["face_box"][i][j, 2], 
+                                     log_dict["face_box"][i][j, 3], c=200)
+                
+            face_img = torch.from_numpy(face_img)
+            face_img = (face_img/255)*2 - 1  # make from -1 to 1
+            print(face_img.shape)
+
             super_img_i = torch.cat( (log_dict["x_noisy"][i:i+1, :, :, :], 
-                                      log_dict["x_0_pred"][i:i+1, :, :, :] , 
-                                      log_dict["train_gt"][i:i+1, :, :, :] , 
-                                      log_dict["mask_gt"][i:i+1, :, :, :]), dim=0) 
+                                log_dict["x_0_pred"][i:i+1, :, :, :] , 
+                                log_dict["train_gt"][i:i+1, :, :, :] , 
+                                log_dict["mask_gt"][i:i+1, :, :, :], face_img), dim=0) 
+
             if super_img == None:
                 super_img = super_img_i
             else:
                 super_img = torch.cat( (super_img, super_img_i), dim=0)
 
-        grid = torchvision.utils.make_grid(super_img, nrow=4, pad_value=1)
+        grid = torchvision.utils.make_grid(super_img, nrow=5, pad_value=1)
         if self.rescale:
             grid = (grid + 1.0) / 2.0  # [-1,1] -> 0,1; c,h,w
         grid = grid.transpose(0, 1).transpose(1, 2).squeeze(-1)
@@ -131,8 +156,9 @@ class ImageLogger(Callback):
         # draw text with bigger font size
         draw.text((10, 5), "Timestep: " + str(log_dict["timestep"].item()), fill=(0, 0, 0), font=font)
         draw.text((10, 25), "Prompt: " + str(log_dict["x_text"]), fill=(0, 0, 0), font=font)
-        draw.text((10, 45), "Loss Mask: " + str(log_dict["loss_mask"].item()), fill=(0, 0, 0),  font=font)
-        draw.text((10, 65), "Loss SD: " + str(log_dict["loss_sd"].item()), fill=(0, 0, 0),  font=font)
+        draw.text((10, 45), "Loss LPIPS: " + str(log_dict["loss_lpips"].item()), fill=(0, 0, 0),  font=font)
+        draw.text((10, 65), "Loss FACE: " + str(log_dict["loss_face"].item()), fill=(0, 0, 0),  font=font)
+        draw.text((10, 85), "Loss SD: " + str(log_dict["loss_sd"].item()), fill=(0, 0, 0),  font=font)
         # Merge the grid and text images
         merged_width = grid.shape[1]
         merged_height = grid.shape[0] + text_image.height
@@ -157,11 +183,12 @@ class ImageLogger(Callback):
         # store text prompts in a csv file (text will have train_batch_text and val_batch_text)
         if not os.path.exists(os.path.join(root, "metadata.csv")):
             with open(os.path.join(root, "metadata.csv"), "w") as f:
-                f.write("Global Step, Current Epoch, Batch Index, Prompt, loss_sd, loss_mask, timestep\n")
+                f.write("Global Step, Current Epoch, Batch Index, Prompt, loss_sd, loss_lpips, loss_face, timestep\n")
         # append text to prompts.txt in a new line with 
         with open(os.path.join(root, "metadata.csv"), "a") as f:
-            f.write(str(global_step)+","+str(current_epoch)+","+ str(batch_idx)+","+ str(log_dict["x_text"])+","+ str(log_dict["loss_sd"])+","+ str(log_dict["loss_mask"])+","+ str(log_dict["timestep"])+"\n")
-        
+            f.write(str(global_step)+","+str(current_epoch)+","+ str(batch_idx)+","+
+                     str(log_dict["x_text"])+","+ str(log_dict["loss_sd"])+","+ str(log_dict["loss_lpips"])+","
+                     + str(log_dict["loss_face"])+","+ str(log_dict["timestep"])+"\n")
     def log_loss(self, pl_module, batch, batch_idx, split="train"):
         """
         Called by on_train_batch_end

@@ -69,31 +69,62 @@ def custom_resize(img, mask):
     
     return resized_img, resized_mask
 
-def resize_square(img, mask):
+def resize_square(img, mask, face_boxes= None):
+    # face boxes of shape n x 4 (x1, y1, x2, y2)
     # outputs center cropped and resized image of size 512x512
     img_size = 512
+    # print(face_boxes)
+    if(face_boxes is not None and len(face_boxes) == 0):
+        face_boxes = np.array([[0, 0, 0, 0]])
+    if(face_boxes is not None):
+        face_boxes = np.array(face_boxes)
     # center crop image to be square
     height, width = img.shape[:2]
     if(height > width):
         # transpose image along 0 and 1 axis
-        img, mask = resize_square(img.transpose(1, 0, 2), mask.transpose(1, 0))
+        # print(face_boxes, face_boxes.shape)
+        face_boxes_transposed = np.array([face_boxes[:,1], face_boxes[:,0], face_boxes[:,3], face_boxes[:,2]]).transpose() if face_boxes is not None else None
+        img, mask, face_boxes = resize_square(img.transpose(1, 0, 2), mask.transpose(1, 0), face_boxes_transposed) 
         # transpose back
         img = img.transpose(1, 0, 2)
         mask = mask.transpose(1, 0)
-        return img, mask
+        face_boxes = np.array([face_boxes[:,1], face_boxes[:,0], face_boxes[:,3], face_boxes[:,2]]).transpose() if face_boxes is not None else None
+        if face_boxes is None:
+            return img, mask
+        else:
+            return img, mask, face_boxes
     else:
         # center crop image
         resized_img = img[:, (width - height) // 2 : (width - height) // 2 + height, :]
         resized_mask = mask[:, (width - height) // 2 : (width - height) // 2 + height]
+        resized_face_boxes = face_boxes - np.array([(width - height) // 2, 0, (width - height) // 2, 0]) if face_boxes is not None else None
+
         # resize image to 512x512
+        scale_factor = resized_img.shape[0] / img_size
         resized_img = cv2.resize(resized_img, (img_size, img_size), interpolation=cv2.INTER_LINEAR)
         resized_mask = cv2.resize(resized_mask, (img_size, img_size), interpolation=cv2.INTER_LINEAR)
-        return resized_img, resized_mask
+        resized_face_boxes = resized_face_boxes / scale_factor if face_boxes is not None else None
+
+        if face_boxes is None:
+            return resized_img, resized_mask
+        else:
+            # check if resized face boxes are within bounds
+            final_boxes = []
+            for i in range(resized_face_boxes.shape[0]):
+                if resized_face_boxes[i,0] < 0 or resized_face_boxes[i,1] <0 or resized_face_boxes[i,2] <0 or resized_face_boxes[i,3] <0:
+                    continue
+                if resized_face_boxes[i,0] > img_size or resized_face_boxes[i,1] > img_size or resized_face_boxes[i,2] > img_size or resized_face_boxes[i,3] > img_size:
+                    continue
+                final_boxes.append(resized_face_boxes[i])
+            if(len(final_boxes)==0):
+                final_boxes = [[0, 0, 0, 0]]
+            resized_face_boxes = np.array(final_boxes)
+            return resized_img, resized_mask, resized_face_boxes.astype(int)
 
 class Custom_Train_Dataset(Dataset):
     def __init__(self):
         self.data = []
-        with open('../cocoapi/PythonAPI/tp_train.json', 'rt') as f:
+        with open('../cocoapi/coco/person_apv/train_apv.json', 'rt') as f:
             for line in f:
                 self.data.append(json.loads(line))
         self.transform = transforms.Compose([
@@ -110,18 +141,20 @@ class Custom_Train_Dataset(Dataset):
         target_filename = item['target']
         mask_filename = item['mask']
         prompts = item['prompts']
+        face_boxes = item['face_bbox']
+        #make n by 4 array of random integeres from 0 to 512
         prompt = np.random.choice(prompts, 1) #, replace=False)
 
 
         # source = cv2.imread('./training/fill50k/' + source_filename)
-        target = cv2.imread('../cocoapi/coco/person_new/images/train2017/' + target_filename)
-        mask = cv2.imread('../cocoapi/coco/person_new/mask/train2017/' + mask_filename, cv2.IMREAD_GRAYSCALE)
+        target = cv2.imread('../cocoapi/coco/person_apv/images/train/' + target_filename)
+        mask = cv2.imread('../cocoapi/coco/person_apv/mask/train/' + mask_filename, cv2.IMREAD_GRAYSCALE)
         # print("hi1", type(target), type(prompt))
         # Do not forget that OpenCV read images in BGR order.
         target = cv2.cvtColor(target, cv2.COLOR_BGR2RGB)
         
         # print(target.shape, mask.shape, "from inside1")
-        target, mask = resize_square(target, mask)
+        target, mask, face_boxes = resize_square(target, mask, face_boxes)
         # print(target.shape, mask.shape, "from inside2\n")
         target = Image.fromarray(target)
         target = self.transform(target)
@@ -141,13 +174,12 @@ class Custom_Train_Dataset(Dataset):
         mask = (mask>0.5)*1
         mask = mask.transpose((1,2,0))
         # mask = (mask.astype(np.float32)*2) - 1.0
-
-        return dict(jpg=target, mask=mask, txt=str(prompt[0]))
+        return dict(jpg=target, mask=mask, face_boxes=face_boxes, txt=str(prompt[0]))
 
 class Custom_Val_Dataset(Dataset):
     def __init__(self):
         self.data = []
-        with open('../cocoapi/PythonAPI/tp_val.json', 'rt') as f:
+        with open('../cocoapi/coco/person_apv/val_apv.json', 'rt') as f:
             for line in f:
                 self.data.append(json.loads(line))
 
@@ -165,13 +197,14 @@ class Custom_Val_Dataset(Dataset):
         target_filename = item['target']
         mask_filename = item['mask']
         prompts = item['prompts']
+        face_boxes = item['face_bbox']
         prompt =np.random.choice(prompts, 1) #, replace=False)
-        target = cv2.imread('../cocoapi/coco/person_new/images/val2017/' + target_filename)
-        mask = cv2.imread('../cocoapi/coco/person_new/mask/val2017/' + mask_filename, cv2.IMREAD_GRAYSCALE)
+        target = cv2.imread('../cocoapi/coco/person_apv/images/val/' + target_filename)
+        mask = cv2.imread('../cocoapi/coco/person_apv/mask/val/' + mask_filename, cv2.IMREAD_GRAYSCALE)
         # print("hi2", type(target), type(prompt))
         # Do not forget that OpenCV read images in BGR order.
         target = cv2.cvtColor(target, cv2.COLOR_BGR2RGB)
-        target, mask = resize_square(target, mask)
+        target, mask, face_boxes = resize_square(target, mask, face_boxes)
         target = Image.fromarray(target)
         target = self.transform(target)
         target = np.array(target)
@@ -191,13 +224,13 @@ class Custom_Val_Dataset(Dataset):
         mask = mask.transpose((1,2,0))
         # mask = (mask.astype(np.float32)*2) - 1.0
         
-        return dict(jpg=target, mask=mask, txt=str(prompt[0]))
+        return dict(jpg=target, mask=mask, txt=str(prompt[0]), face_boxes=face_boxes)
 
 class Custom_FID_Dataset(Dataset):
     def __init__(self, num_samples=1000):
         self.data = []
         # randomly read 50 lines from the file
-        with open('../cocoapi/PythonAPI/tp_val.json', 'rt') as f:
+        with open('../cocoapi/coco/person_apv/val_apv.json', 'rt') as f:
             lines = f.readlines()
             
             # random sample 50 lines
@@ -225,8 +258,8 @@ class Custom_FID_Dataset(Dataset):
         prompts = item['prompts']
         # prompt =np.random.choice(prompts, 1) #, replace=False)
         prompt = [prompts[0]]
-        target = cv2.imread('../cocoapi/coco/person_new/images/val2017/' + target_filename)
-        mask = cv2.imread('../cocoapi/coco/person_new/mask/val2017/' + mask_filename, cv2.IMREAD_GRAYSCALE)
+        target = cv2.imread('../cocoapi/coco/person_apv/images/val/' + target_filename)
+        mask = cv2.imread('../cocoapi/coco/person_apv/mask/val/' + mask_filename, cv2.IMREAD_GRAYSCALE)
         # print("hi2", type(target), type(prompt))
         # Do not forget that OpenCV read images in BGR order.
         target = cv2.cvtColor(target, cv2.COLOR_BGR2RGB)
