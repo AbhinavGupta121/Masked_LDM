@@ -90,7 +90,7 @@ def resize_square(img, mask, face_boxes= None):
         mask = mask.transpose(1, 0)
         face_boxes = np.array([face_boxes[:,1], face_boxes[:,0], face_boxes[:,3], face_boxes[:,2]]).transpose() if face_boxes is not None else None
         if face_boxes is None:
-            return img, mask
+            return img, mask, None
         else:
             return img, mask, face_boxes
     else:
@@ -106,7 +106,7 @@ def resize_square(img, mask, face_boxes= None):
         resized_face_boxes = resized_face_boxes / scale_factor if face_boxes is not None else None
 
         if face_boxes is None:
-            return resized_img, resized_mask
+            return resized_img, resized_mask, None
         else:
             # check if resized face boxes are within bounds
             final_boxes = []
@@ -263,7 +263,7 @@ class Custom_FID_Dataset(Dataset):
         # print("hi2", type(target), type(prompt))
         # Do not forget that OpenCV read images in BGR order.
         target = cv2.cvtColor(target, cv2.COLOR_BGR2RGB)
-        target, mask = resize_square(target, mask)
+        target, mask, _ = resize_square(target, mask)
         target = Image.fromarray(target)
         target = self.transform(target)
         target = np.array(target)

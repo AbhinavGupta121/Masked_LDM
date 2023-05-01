@@ -91,10 +91,11 @@ dataset = Custom_Train_Dataset()
 # dataset = Custom_FID_Dataset()
 dataloader = DataLoader(dataset, batch_size=1, shuffle=False, num_workers=1)
 for batchid, batch in enumerate(dataloader):
+    print(batchid, batch["jpg"].shape, batch["mask"].shape, batch["face_boxes"].shape)
     img = batch["jpg"][0].numpy()
     # print(img.shape)
-    face_box = batch["face_boxes"]
-    print(face_box.shape)
+    # face_box = batch["face_boxes"]
+    # print(face_box.shape)
     # if(face_box.shape[2]!=4):
     #     print("face box shape is not 4")
     #     break

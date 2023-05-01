@@ -108,6 +108,8 @@ class MaskControlLDM(ControlLDM):
         self.face_model_path = "/home/phebbar/Documents/ControlNet/models/resnet50_ft_weight.pkl"
         del self.control_key
         self.loss_init_flag = False
+        self.lpips_lossfn = Masked_LPIPS_Loss(net='vgg', device=self.device)
+        self.face_loss = FaceLoss(self.face_model_path, device=self.device)
     
     def store_dataloaders(self, train_dataloader, val_dataloader, val_dataloader_fid):
         self.train_dataloader_log = train_dataloader
@@ -379,11 +381,6 @@ class MaskControlLDM(ControlLDM):
             loss_dict.update({f'{prefix}/lpips_loss': torch.tensor([0]).to(x0_gt.device) })
             x0_pred_img = torch.zeros_like(x0_gt)
         else:
-            if(self.loss_init_flag ==False):
-                self.lpips_lossfn = Masked_LPIPS_Loss(net='vgg', device=x_start.device)
-                self.face_loss = FaceLoss(self.face_model_path, device=x_start.device)
-                self.loss_init_flag = True
-
             x0_pred = self.get_x0(x_noisy, t, cond, model_output)
             x0_pred_img = self.decode_first_stage(x0_pred)
             x0_gt = x0_gt.permute(0, 3, 1, 2)

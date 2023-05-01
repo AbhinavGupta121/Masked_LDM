@@ -105,10 +105,10 @@ class ImageLogger(Callback):
             max_y1 = min(h, y1 + 1)
             min_y2 = max(0, y2 - 1)
             max_y2 = min(h, y2 + 1)
-            img[:, :, y1:y2, min_x1:max_x1] = c
-            img[:, :, y1:y2, min_x2:max_x2] = c
-            img[:, :, min_y1:max_y1, x1:x2] = c
-            img[:, :, min_y2:max_y2, x1:x2] = c
+            img[:, 0:1, y1:y2, min_x1:max_x1] = c
+            img[:, 0:1, y1:y2, min_x2:max_x2] = c
+            img[:, 0:1, min_y1:max_y1, x1:x2] = c
+            img[:, 0:1, min_y2:max_y2, x1:x2] = c
             return img
         """
         Decorator used to run this method only on the main process (with rank 0)
@@ -229,8 +229,8 @@ class ImageLogger(Callback):
         Logs images to image_log/train or image_log/{split}
         Calls the log_images function of the model 
         """
-        if(pl_module.calculate_fid==False):
-            return
+        # if(pl_module.calculate_fid==False):
+        #     return
         if((pl_module.global_step % self.fid_frequency == 0) and (pl_module.global_step!=0)): # log every fid_frequency batches
             print("---------------Calculating FID---------------") 
             gen_path_batch = os.path.join(self.gen_path, "version" + str(pl_module.logger.version), "fid_val", "step"+str(pl_module.global_step))
