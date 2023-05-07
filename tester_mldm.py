@@ -12,16 +12,6 @@ import numpy as np
 import os
 from pytorch_lightning.callbacks import ModelCheckpoint
 
-# TODO for loss:
-# - Code for 1 step prediction
-# - Mask is also there in the GT now, so multiply the loss by the mask
-
-# TODO for logging:
-# - log model weights more frequently
-
-#TODO: @abhinav - Go through train fit. At a DDPM step, get UNET output, call ddim function for calculating pred_x0. 
-# Calculate VGG loss using pred_x0 and GT image masks.
-
 def main():
     # set global seed
     pl.seed_everything(42)
@@ -33,20 +23,19 @@ def main():
     
     # Training Params
     batch_size = 1
-    model_loss_type = 'ddpm'
-    ddpm_mask_thresh = 100 # timestep below which mask loss is trained
+    model_loss_type = 'mask'
+    ddpm_mask_thresh = 400 # timestep below which mask loss is trained
     # loss = (1 - lambda1 - lambda2)*sd_loss + lambda1 * mask_loss + lambda2 * face_loss
-    lambda1  = 0.1
-    lambda2 = 0.7
+    lambda1  = 0.3
+    lambda2 = 0.25
     use_control = True
 
     # Logging Params
     logger_freq = 300 # log images frequency
     loss_log_frequency = 300 # log loss frequency
-    fid_logger_epoch_freq = 2 # log fid after how many epochs, can be fractional
+    fid_logger_epoch_freq = 0.0001 # log fid after how many epochs, can be fractional
     fid_batch_size = 2
-    fid_num_samples = 1000
-    calculate_fid = True
+    fid_num_samples = 2
     save_model_every_n_steps = 10000
     
     # Fixed params for our experiments
@@ -61,7 +50,6 @@ def main():
     model.learning_rate = learning_rate
     model.sd_locked = sd_locked
     model.only_mid_control = only_mid_control
-    model.calculate_fid = calculate_fid
     model.model_loss_type = model_loss_type
     model.ddpm_mask_thresh = ddpm_mask_thresh
     model.lambda1 = lambda1
@@ -82,9 +70,11 @@ def main():
     val_dataloader_fid = DataLoader(Custom_FID_Dataset(fid_num_samples), num_workers=24, batch_size=fid_batch_size, shuffle=False)
 
     fid_logger_freq = int(len(train_dataloader)*fid_logger_epoch_freq) # log fid frequency
+    print("FID Logging frequency: ", fid_logger_freq)
+    print("Steps per epoch: ", len(train_dataloader))
     logger = ImageLogger(batch_frequency=logger_freq, fid_frequency=fid_logger_freq, 
                          loss_log_frequency=loss_log_frequency, train_batch_size=batch_size)
-    trainer = pl.Trainer(gpus=[0], precision=32, callbacks=[logger, checkpointer])
+    trainer = pl.Trainer(gpus=[1], precision=32, callbacks=[logger, checkpointer])
     # can pass resume_from_checkpoint=resume_path to resume training
 
     model.store_dataloaders(train_dataloader_log, val_dataloader_log, val_dataloader_fid)

@@ -53,16 +53,16 @@ def create_model_and_sampler(version, use_control=True):
     ddim_sampler = DDIMSampler(model)
     return model, ddim_sampler
 
-def model_sample(prompt, n_prompt, model, num_samples, ddim_sampler, ddim_steps, eta, unconditional_guidance_scale, strength=1, guess_mode=True):
+def model_sample(prompt, n_prompt, model, num_samples, ddim_sampler, ddim_steps, strength=1, guess_mode=True):
     cond = {"c_crossattn": [model.get_learned_conditioning([prompt] * num_samples)]}
-    un_cond = {"c_crossattn": [model.get_learned_conditioning([n_prompt] * num_samples)]}
-    shape = (4, 64, 64)
+    uc_cross = model.get_unconditional_conditioning(num_samples)
+    uc_full = {"c_crossattn": [uc_cross]}
 
     model.control_scales = [strength * (0.825 ** float(12 - i)) for i in range(13)] if guess_mode else ([strength] * 13)  # Magic number. IDK why. Perhaps because 0.825**12<0.01 but 0.826**12>0.01
     samples, intermediates = ddim_sampler.sample(ddim_steps, num_samples,
-                                                    shape, cond, verbose=False, eta=eta,
-                                                    unconditional_guidance_scale=unconditional_guidance_scale,
-                                                    unconditional_conditioning=un_cond)
+                                                    (4, 64, 64), cond, verbose=False, eta=0,
+                                                    unconditional_guidance_scale=9,
+                                                    unconditional_conditioning=uc_full)
 
     x_samples = model.decode_first_stage(samples)
     x_samples = (einops.rearrange(x_samples, 'b c h w -> b h w c') * 127.5 + 127.5).cpu().numpy().clip(0, 255).astype(np.uint8)

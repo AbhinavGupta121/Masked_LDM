@@ -28,17 +28,35 @@ updated mask loss = mask_loss*512*512/num_px_mask,
 mask_weight = 0.9, 
 ddpm_mask_thresh = 200,
 
-277: and 280(resumed), 281
+277: and 280(resumed), 281(nulled), 288
 lambda1 = 0.3
 lambda2 = 0.5
 T = 400
+luck
 
-278: and 279(resumed)
+278: and 279(resumed), 282(nulled), 289
 lambda1 = 0.2
 lambda2 = 0.3
 T = 400
+luck2
 
+290: (luck2), gpu 1 (Killed early)
+lambda1 = 0.2
+lambda2 = 0.4
+T = 100
 
+291: (luck), gpu 0
+lambda1 = 0.1
+lambda2 = 0.5
+T = 100
+
+292: (luck2), gpu 1
+lambda1 = 0.1
+lambda2 = 0.7
+T = 100
+
+294: (baseline), gpu0
+baseline run with 512x512 image size
 
 
 

@@ -45,7 +45,7 @@ def main():
     logger_freq = 300 # log images frequency
     loss_log_frequency = 300 # log loss frequency
     fid_logger_epoch_freq = 2 # log fid after how many epochs, can be fractional
-    fid_batch_size = 4
+    fid_batch_size = 2
     fid_num_samples = 1000
     calculate_fid = True
     save_model_every_n_steps = 10000
@@ -82,7 +82,7 @@ def main():
     val_dataloader_log = DataLoader(Custom_Val_Dataset(), num_workers=24, batch_size=batch_size, shuffle=True)
     val_dataloader_fid = DataLoader(Custom_FID_Dataset(fid_num_samples), num_workers=24, batch_size=fid_batch_size, shuffle=False)
 
-    fid_logger_freq = len(train_dataloader)*fid_logger_epoch_freq # log fid frequency
+    fid_logger_freq = int(len(train_dataloader)*fid_logger_epoch_freq) # log fid frequency
     logger = ImageLogger(batch_frequency=logger_freq, fid_frequency=fid_logger_freq, 
                          loss_log_frequency=loss_log_frequency, train_batch_size=batch_size)
     trainer = pl.Trainer(gpus=[gpu_id], precision=32, callbacks=[logger, checkpointer], resume_from_checkpoint=checkpoint_path)

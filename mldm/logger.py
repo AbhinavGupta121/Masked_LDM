@@ -8,6 +8,7 @@ from pytorch_lightning.callbacks import Callback
 from pytorch_lightning.utilities.distributed import rank_zero_only
 from cleanfid import fid
 from PIL import Image, ImageDraw, ImageFont
+import pytorch_lightning as pl
 
 class ImageLogger(Callback):
     def __init__(self, batch_frequency=2000, max_images=4, clamp=True, increase_log_steps=True,
@@ -239,6 +240,13 @@ class ImageLogger(Callback):
             is_train = pl_module.training
             if is_train:
                 pl_module.eval() # set to eval mode
+                pl_device = pl_module.device
+                pl_module.lpips_lossfn.cpu()
+                pl_module.face_loss.cpu()
+            
+            # seeds for reproducibility
+            pl.seed_everything(42)
+            np.random.seed(42)
 
             with torch.no_grad():
                 for batch_idx_fid, batch_fid in enumerate(custom_dataloader):
@@ -279,6 +287,8 @@ class ImageLogger(Callback):
             pl_module.log('FID', score, on_step=True, on_epoch=False, prog_bar = False, logger=True, batch_size = self.train_batch_size)
             if is_train:
                 pl_module.train() # restore training mode
+                pl_module.lpips_lossfn.to(pl_device)
+                pl_module.face_loss.to(pl_device)
 
     def compute_fid(self, gt_path, gen_path,custom_name="fid_stats_coco",mode = "clean", device="cpu"):
         """ Compute FID score for a given dataset and generator path"""
