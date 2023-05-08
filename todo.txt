@@ -1,5 +1,0 @@
-todo:
-- Integrate Face Loss (lambda1, lambda2, T)
-    - Logging
-    - Check Masked LPIPS
-- Logging image with face drawn on it

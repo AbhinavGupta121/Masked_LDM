@@ -1,6 +1,6 @@
 import sys
 sys.path.append("/home/phebbar/Documents/ControlNet")
-from share import *
+from cldm_scripts.share import *
 
 import pytorch_lightning as pl
 from torch.utils.data import DataLoader
@@ -18,19 +18,13 @@ from PIL import Image
 from cleanfid import fid
 
 # global config
-gpu_id = 1
+gpu_id = 0
 fid_batch_size = 8
 fid_num_samples = 1000
 model_identifier = "stable_diffusion"
 use_control= False
 version = None
 gt_path = '/home/phebbar/Documents//cocoapi/coco/person/images/train2017/'
-
-device = "cuda"+":"+str(gpu_id)
-torch.cuda.set_device(device)
-
-pl.seed_everything(42)
-np.random.seed(42)
 
 def create_model_and_sampler(version, use_control=True):
     model = create_model('models/mldm_v15.yaml').cpu()
@@ -140,4 +134,11 @@ def main():
     calc_fid(model, ddim_sampler, num_samples=fid_num_samples)
     
 if __name__ == "__main__":
-    main()
+    device = "cuda"+":"+str(gpu_id)
+    torch.cuda.set_device(device)
+
+    pl.seed_everything(42)
+    np.random.seed(42)
+    fid = compute_fid(gt_path, "./image_log/version294/fid_val/step74940", device = "cuda:0")
+    print("FID", fid)
+    # main()

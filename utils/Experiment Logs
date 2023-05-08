@@ -68,3 +68,10 @@ baseline run with 512x512 image size
 Can Compare:
 image_log/version220/fid_val/step563775/samples_cfg_gs-563775_e-000015_b-000024_idx000.png
 image_log/version221/fid_val/step563775/samples_cfg_gs-563775_e-000015_b-000024_idx000.png
+
+
+
+FID:
+Baseline: 63.955539408674156 (10 epochs)
+Stable Diffusion: 62.3167420337241
+Model(lambda1 = 0.1, lambda2 = 0.5, T = 100): 61.72 (12 epochs)

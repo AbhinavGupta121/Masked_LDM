@@ -1,6 +1,6 @@
 import sys
 sys.path.append("/home/phebbar/Documents/ControlNet")
-from share import *
+from cldm_scripts.share import *
 
 import pytorch_lightning as pl
 from torch.utils.data import DataLoader
