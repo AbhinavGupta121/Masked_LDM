@@ -21,22 +21,16 @@ Mask Aware Perceptual Loss:
 Our broad aim is to control image generation by guiding the diffusion process to minimize a perceptual mask-aware loss function such that it can generate kinematically feasible human poses and realistic facial expressions. We propose using the ControlNet architecture, and instead of using the parallel network to feed in conditioning, we plan to train it as a second modality that guides the diffusion model into minimizing perceptual loss.
 
 - **Face Aware Loss:** A feature matching loss over the activations of a pre-trained face embedding network (VGGFace 2)
-    $$
-        \mathcal{L}_{face} = \Sigma_{k} \Sigma_{l} \alpha^{l}_{f} || \text{FE}^{l} (\hat{c}^{k}_{f}) - \text{FE}^{l} (c^{k}_{f}) || 
-    $$
+$$\mathcal{L}_{face} = \sum_k \sum_l \alpha^l_f || FE^l (\hat{c}^k_f) - FE^l (c^k_f) ||$$
     where $l$ denotes layers in the face embedding network $FE$, $\hat{c_f}^k$ and $c_f^k$ are the reconstructed and ground truth face crops of $k$ faces in the image, and $\alpha_f^l$ is a per layer normalization hyperparameter. This face loss helps the model learn low-level features and generate realistic human faces.
 
     
 - **Masked LPIPS Loss:** To enforce visual and pose consistency on human images, we additionally use a Learned Perceptual Image Patch Similarity (LPIPS) loss on segmented human masks in the image. LPIPS metric essentially performs a weighted average over multiple feature maps obtained from the VGG network. In order to implement masked LPIPS loss, we first upsample feature maps of relevant layers to the original input image size and apply segmented human masks on them. Finally, we compute the LPIPS loss on the upsampled VGG feature maps. 
-    $$
-        \mathcal{L}_{lpips} = \Sigma_{k} \Sigma_{l} \alpha^{l}_{p} || \text{VGG}^{l} (\hat{c}^{k}_{p}) - \text{VGG}^{l} (c^{k}_{p}) || 
-    $$
+    $$\mathcal{L}_{lpips} = \sum_k \sum_l \alpha^l_p || VGG^l (\hat{c}^k_p) - VGG^l (c^k_p) || $$
     where $l$ denotes layers in the VGG, $\hat{c_p}^k$ and $c_p^k$ are the reconstructed and ground truth image mask crops of $k$ people in the image, and $\alpha_p^l$ is a per layer normalization hyperparameter.
 
 A weighted average of the two loss functions is used to guide the diffusion process and minimize this loss function as represented by 
-$$
-        \mathcal{L}_{total} = \lambda_{1}  \mathcal{L}_{lpips} +   \lambda_{2}  \mathcal{L}_{face} + (1-\lambda_{1} - \lambda_{2}) \mathcal{L}_{LDM}
-$$
+$$L_{total} = \lambda_1 L_{lpips} + \lambda_2 L_{face} + (1-\lambda_1 - \lambda_2) L_{LDM}$$
 
 # Results
 The first row shows the outputs of the Masked LDM model, the second row shows the outputs of our baseline, which is the ControlNet branched trained on the human dataset without changing the loss function. 
