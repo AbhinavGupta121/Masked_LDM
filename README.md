@@ -1,4 +1,4 @@
-#Improving Latent Diffusion with Mask-Aware Perceptual Loss
+# Improving Latent Diffusion with Mask-Aware Perceptual Loss
 
 ## Give brief description of concept-model arch etc
 
