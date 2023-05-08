@@ -42,7 +42,8 @@ $$L_{total} = \lambda_1 L_{lpips} + \lambda_2 L_{face} + (1-\lambda_1 - \lambda_
 </p>
 
 ## Results
-The first row shows the outputs of the Masked LDM model, the second row shows the outputs of our baseline, which is the ControlNet branched trained on the human dataset without changing the loss function. 
+The first row shows the outputs of the Masked LDM model, the second row shows the outputs of our baseline, which is the ControlNet branched trained on the human dataset without changing the loss function. The last row shows the outputs from stable diffusion. Results are generated without any prompt enginnering.
+
 <p align="center">
 <img src="mldm_github_figures/goodresults0.png"  width="600">
 <img src="mldm_github_figures/goodresults1.png"  width="600">
