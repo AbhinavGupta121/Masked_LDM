@@ -1,12 +1,12 @@
 # Improving Latent Diffusion with Perceptual Mask-Aware Loss
+Course Project for 16-824 Visual Learning and Recognition
 
 Team Members:
 - Abhinav Gupta (`ag6`)
 - Poorvi Hebbar (`phebbar`)
 - Vibhakar Mohta (`vmohta`)
 
-Webpage:
-https://poorvirhebbar.github.io/Masked_LDM.html
+Webpage: https://poorvirhebbar.github.io/Masked_LDM.html
 
 ## Abstract
 Recent advances in AI-based image generation has made significant strides in text-image synthesis. In particular, diffusion models stand out by combining context using text prompts to generate very realistic and diverse images for text-to-image generation tasks. These networks have been adapted to various other tasks such as image inpainting, segmentation, style transfer, image to 3D, etc. However, diffusion models struggle to understand and model the spatial and kinematic constraints of the world and therefore perform poorly in depicting complex objects like human faces, body extremities, etc. In this work, we aim to address some of the limitations of diffusion models, in particular, stable diffusion, by optimizing diffusion latents using a mask-aware loss on human faces and body. We hypothesize that conditioning on this loss function will guide the model into focusing on "important" aspects of image generation, like human faces and poses. We believe our work can serve as a foundation for finetuning pre-trained diffusion models on more sophisticated loss functions. Our code is open source and is available at the project.
