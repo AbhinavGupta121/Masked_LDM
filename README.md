@@ -10,7 +10,7 @@ Webpage: https://poorvirhebbar.github.io/Masked_LDM.html
 
 ## Abstract
 <p align="justify">
-Recent advances in AI-based image generation has made significant strides in text-image synthesis. In particular, diffusion models stand out by combining context using text prompts to generate very realistic and diverse images for text-to-image generation tasks. These networks have been adapted to various other tasks such as image inpainting, segmentation, style transfer, image to 3D, etc. However, diffusion models struggle to understand and model the spatial and kinematic constraints of the world and therefore perform poorly in depicting complex objects like human faces, body extremities, etc. In this work, we aim to address some of the limitations of diffusion models, in particular, stable diffusion, by optimizing diffusion latents using a mask-aware loss on human faces and body. We hypothesize that conditioning on this loss function will guide the model into focusing on "important" aspects of image generation, like human faces and poses. We believe our work can serve as a foundation for finetuning pre-trained diffusion models on more sophisticated loss functions. Our code is open source and is available at the project.
+Recent advances in AI-based image generation have made significant strides in text-image synthesis. In particular, diffusion models stand out by combining context using text prompts to generate very realistic and diverse images for text-to-image generation tasks. These networks have been adapted to various other tasks such as image inpainting, segmentation, style transfer, image to 3D, etc. However, diffusion models struggle to understand and model the spatial and kinematic constraints of the world and therefore perform poorly in depicting complex objects like human faces, body extremities, etc. In this work, we aim to address some of the limitations of diffusion models, in particular, stable diffusion, by optimizing diffusion latents using a mask-aware loss on human faces and bodies. We hypothesize that conditioning on this loss function will guide the model into focusing on "important" aspects of image generation, like human faces and poses. We believe our work can serve as a foundation for finetuning pre-trained diffusion models on more sophisticated loss functions. Our code is open source and is available at the project.
 </p>
 
 ## Architecture and Approach
@@ -42,7 +42,7 @@ $$L_{total} = \lambda_1 L_{lpips} + \lambda_2 L_{face} + (1-\lambda_1 - \lambda_
 </p>
 
 ## Results
-The first row shows the outputs of the Masked LDM model, the second row shows the outputs of our baseline, which is the ControlNet branched trained on the human dataset without changing the loss function. The last row shows the outputs from stable diffusion. Results are generated without any prompt enginnering.
+The first row shows the outputs of the Masked LDM model, and the second row shows the outputs of our baseline, which is the ControlNet branched trained on the human dataset without changing the loss function. The last row shows the outputs from stable diffusion. Results are generated without any prompt engineering.
 
 <p align="center">
 <img src="mldm_github_figures/goodresults0.png"  width="600">
@@ -62,13 +62,13 @@ We observed that when trained with $T=400$, the human faces and poses improved, 
 
 
 ## Scripts
-- `train_mldm.py`: The main script used to train the mldm model. It loads a pretrained ControlNet model with weights initialized from the Stable Diffusion 1.5 checkpoint. Dataloaders must be customized for the dataset being used. The masked perceptual loss is used, and the values of $\lambda_1$ and $\lambda_2$ and $T$ can be changed in the scrpit.
+- `train_mldm.py`: The main script used to train the mldm model. It loads a pre trained ControlNet model with weights initialized from the Stable Diffusion 1.5 checkpoint. Dataloaders must be customized for the dataset being used. The masked perceptual loss is used, and the values of $\lambda_1$ and $\lambda_2$ and $T$ can be changed in the script.
 
-- `train_mldm_baseline.py`: The main script used to train the baseline model. It loads a pretrained ControlNet model with weights initialized from the Stable Diffusion 1.5 checkpoint. Dataloaders must be customized for the dataset being used. The loss function used here is the default DDPM loss
+- `train_mldm_baseline.py`: The main script used to train the baseline model. It loads a pre trained ControlNet model with weights initialized from the Stable Diffusion 1.5 checkpoint. Dataloaders must be customized for the dataset being used. The loss function used here is the default DDPM loss
 
 - `resume_mldm.py`: Script to resume training from a checkpoint. The version number for the checkpoint needs to be set on top of the script, and the script looks for the checkpoint in `lightning_logs/version_<num>/checkpoints`
 
-- `fid_mldm.py`: Script to get the FID metric for a checkpoint. The version number needs to be specified at the top of the script. If its set to None, then the script will use a default Stable Diffusion model to calculate the FID.
+- `fid_mldm.py`: Script to get the FID metric for a checkpoint. The version number needs to be specified at the top of the script. If it's set to None, then the script will use a default Stable Diffusion model to calculate the FID.
 
-## Acknowledgements
-We would like to thank Nupur Kumari for guiding us throghout our work. We would also like to thank Prof. Deepak Pathak and the Teaching Assistants of the Visual Learning and Recognition course for their constant support and guidance.
+## Acknowledgments
+We would like to thank Nupur Kumari for guiding us throughout our work. We would also like to thank Prof. Deepak Pathak and the Teaching Assistants of the Visual Learning and Recognition course for their constant support and guidance.
